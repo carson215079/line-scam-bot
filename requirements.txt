@@ -1,0 +1,9 @@
+flask==3.0.3
+line-bot-sdk==3.11.0
+requests==2.32.3
+beautifulsoup4==4.12.3
+apscheduler==3.10.4
+anthropic==0.34.2
+python-dotenv==1.0.1
+pytest==8.3.2
+pytest-mock==3.14.0
