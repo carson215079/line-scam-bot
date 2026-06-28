@@ -23,7 +23,7 @@ init_db()
 def index():
     return "OK", 200
 
-handler_bp = create_handler(line_bot_api, parser)
+handler_bp = create_handler(line_bot_api, parser, api_client)
 app.register_blueprint(handler_bp)
 
 scheduler = get_scheduler(line_bot_api)

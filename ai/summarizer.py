@@ -43,6 +43,54 @@ def summarize_article(title: str, content: str) -> str:
     except Exception:
         return content[:150] + "..." if len(content) > 150 else content
 
+def analyze_image_for_scam(image_b64: str, media_type: str = "image/jpeg") -> tuple:
+    """分析圖片是否涉及詐騙，回傳 (分析文字, 搜尋關鍵字)"""
+    try:
+        message = client.messages.create(
+            model=MODEL,
+            max_tokens=500,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "請分析這張圖片是否涉及詐騙，照以下格式回覆：\n\n"
+                            "【判斷】是 / 否 / 無法判斷\n\n"
+                            "【說明】詐騙手法與情境描述\n\n"
+                            "【防範】具體防範建議\n\n"
+                            "⚠️ 有疑問請撥 165 反詐騙專線\n\n"
+                            "關鍵字：（填入最符合的詐騙類型，例如：投資詐騙、假交友、釣魚網站）"
+                        )
+                    }
+                ]
+            }]
+        )
+        text = message.content[0].text.strip()
+
+        # 擷取關鍵字並從回覆中移除該行
+        keyword = "詐騙"
+        lines = text.split("\n")
+        filtered = []
+        for line in lines:
+            if line.startswith("關鍵字："):
+                keyword = line.replace("關鍵字：", "").strip() or "詐騙"
+            else:
+                filtered.append(line)
+        text = "\n".join(filtered).strip()
+        return text, keyword
+    except Exception:
+        return "抱歉，無法分析這張圖片，請改用文字描述您看到的內容。", "詐騙"
+
 def answer_keyword_query(keyword: str, articles: list, history: list = None) -> str:
     messages = []
 

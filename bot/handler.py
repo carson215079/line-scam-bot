@@ -1,8 +1,9 @@
+import base64
 from flask import Blueprint, request, abort
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent
-from linebot.v3.messaging import TextMessage, ReplyMessageRequest
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageContent, FollowEvent
+from linebot.v3.messaging import TextMessage, ReplyMessageRequest, MessagingApiBlob
 from db.database import save_user, search_articles, save_message, get_conversation_history
-from ai.summarizer import answer_keyword_query
+from ai.summarizer import answer_keyword_query, analyze_image_for_scam
 
 def distribute_paragraphs(paragraphs: list, max_chars: int = 300, max_buckets: int = 2) -> list:
     """將段落依序填入每個 bucket（≤max_chars），回傳最多 max_buckets 個字串"""
@@ -12,7 +13,6 @@ def distribute_paragraphs(paragraphs: list, max_chars: int = 300, max_buckets: i
 
     for p in paragraphs:
         if len(buckets) >= max_buckets - 1 and current_parts:
-            # 已達最後一個 bucket，剩下全塞進來
             current_parts.append(p)
         elif current_len + len(p) + 2 <= max_chars:
             current_parts.append(p)
@@ -57,7 +57,8 @@ def build_messages(reply_text: str, articles: list, keyword: str = "") -> list:
 
     return messages
 
-def create_handler(line_bot_api, parser):
+def create_handler(line_bot_api, parser, api_client):
+    blob_api = MessagingApiBlob(api_client)
     bp = Blueprint("handler", __name__)
 
     @bp.route("/callback", methods=["POST"])
@@ -79,21 +80,37 @@ def create_handler(line_bot_api, parser):
 
                 save_user(user_id)
 
-                # 取得對話歷史
                 history = get_conversation_history(user_id, limit=6)
-
-                # 搜尋資料庫
                 articles = search_articles(user_message)
-
-                # 產生 AI 回覆
                 reply_text = answer_keyword_query(user_message, articles, history=history)
 
-                # 儲存這輪對話
                 save_message(user_id, "user", user_message)
                 save_message(user_id, "assistant", reply_text)
 
-                # 最多 3 則：AI 回覆（最多 2 則）+ 新聞連結（第 3 則）
                 messages = build_messages(reply_text, articles, keyword=user_message)
+                line_bot_api.reply_message(ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=m) for m in messages]
+                ))
+
+            elif isinstance(event, MessageEvent) and isinstance(event.message, ImageMessageContent):
+                user_id = event.source.user_id
+                save_user(user_id)
+
+                try:
+                    content = blob_api.get_message_content(event.message.id)
+                    image_b64 = base64.standard_b64encode(content).decode("utf-8")
+                    analysis, keyword = analyze_image_for_scam(image_b64)
+                except Exception:
+                    analysis = "抱歉，圖片讀取失敗，請重新傳送或改用文字描述。"
+                    keyword = "詐騙"
+
+                articles = search_articles(keyword)
+
+                save_message(user_id, "user", "[圖片]")
+                save_message(user_id, "assistant", analysis)
+
+                messages = build_messages(analysis, articles, keyword=keyword)
                 line_bot_api.reply_message(ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=m) for m in messages]
