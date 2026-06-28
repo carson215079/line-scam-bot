@@ -1,6 +1,6 @@
 import requests
 import xml.etree.ElementTree as ET
-from crawler.base import BaseCrawler
+from crawler.base import BaseCrawler, resolve_url
 
 RSS_URL = "https://news.google.com/rss/search?q=%E8%A9%90%E9%A8%99+%E5%8F%B0%E7%81%A3&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
 
@@ -13,7 +13,7 @@ class NewsCrawler(BaseCrawler):
             root = ET.fromstring(resp.content)
             for item in root.findall(".//item")[:10]:
                 title = item.findtext("title", "").strip()
-                url = item.findtext("link", "").strip()
+                url = resolve_url(item.findtext("link", "").strip())
                 pub_date = item.findtext("pubDate", "").strip()
                 if not title or not url:
                     continue

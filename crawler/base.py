@@ -1,4 +1,17 @@
+import requests
 from abc import ABC, abstractmethod
+
+def resolve_url(url: str) -> str:
+    """跟隨 Google News 轉址，取得真實文章 URL"""
+    try:
+        r = requests.get(
+            url, allow_redirects=True, timeout=8,
+            headers={"User-Agent": "Mozilla/5.0"}, stream=True
+        )
+        r.close()
+        return r.url
+    except Exception:
+        return url
 
 class BaseCrawler(ABC):
     @abstractmethod
