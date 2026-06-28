@@ -15,7 +15,7 @@ SYSTEM_PROMPT = """你是「防詐小幫手」，一個親切、專業的詐騙�
 - 條列重點，清楚易懂
 - 結尾適時提醒撥打 165 反詐騙諮詢專線
 - 不要太正式或制式，避免像公文
-- 回覆總字數請控制在 300 字以內，精簡有力"""
+- 內容完整清楚即可，不需要刻意壓縮"""
 
 def summarize_article(title: str, content: str) -> str:
     try:
@@ -62,10 +62,7 @@ def answer_keyword_query(keyword: str, articles: list, history: list = None) -> 
             system=SYSTEM_PROMPT,
             messages=messages
         )
-        reply = message.content[0].text
-        if len(reply) > 4800:
-            reply = reply[:4800] + "\n\n（訊息過長，已截短）"
-        return reply
+        return message.content[0].text
     except Exception:
         if articles:
             return "\n\n".join([f"【{a['title']}】\n{a['summary']}\n🔗 {a['url']}" for a in articles])
