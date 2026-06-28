@@ -35,6 +35,10 @@ def initial_crawl():
 import threading
 threading.Thread(target=initial_crawl, daemon=True).start()
 
+@app.route("/")
+def index():
+    return "OK", 200
+
 handler_bp = create_handler(line_bot_api, parser)
 app.register_blueprint(handler_bp)
 
