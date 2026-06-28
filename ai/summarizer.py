@@ -58,7 +58,7 @@ def answer_keyword_query(keyword: str, articles: list, history: list = None) -> 
     try:
         message = client.messages.create(
             model=MODEL,
-            max_tokens=600,
+            max_tokens=2000,
             system=SYSTEM_PROMPT,
             messages=messages
         )
