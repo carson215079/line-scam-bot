@@ -1,9 +1,31 @@
 import base64
 from flask import Blueprint, request, abort
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageContent, FollowEvent
+from linebot.v3.webhooks import (
+    MessageEvent, TextMessageContent, ImageMessageContent,
+    FollowEvent, GroupSource
+)
 from linebot.v3.messaging import TextMessage, ReplyMessageRequest, MessagingApiBlob
 from db.database import save_user, search_articles, save_message, get_conversation_history
 from ai.summarizer import answer_keyword_query, analyze_image_for_scam
+
+def is_bot_mentioned(message) -> bool:
+    """檢查訊息是否有 @TAG 到機器人（is_self=True）"""
+    mention = getattr(message, "mention", None)
+    if not mention:
+        return False
+    mentionees = getattr(mention, "mentionees", None) or []
+    return any(getattr(m, "is_self", False) for m in mentionees)
+
+def strip_mentions(message) -> str:
+    """移除訊息中所有 @mention 後回傳純文字"""
+    text = message.text
+    mentionees = []
+    mention = getattr(message, "mention", None)
+    if mention:
+        mentionees = getattr(mention, "mentionees", None) or []
+    for m in sorted(mentionees, key=lambda x: x.index, reverse=True):
+        text = text[:m.index] + text[m.index + m.length:]
+    return text.strip()
 
 def distribute_paragraphs(paragraphs: list, max_chars: int = 300, max_buckets: int = 2) -> list:
     """將段落依序填入每個 bucket（≤max_chars），回傳最多 max_buckets 個字串"""
@@ -38,7 +60,6 @@ def build_messages(reply_text: str, articles: list, keyword: str = "") -> list:
     ai_messages = distribute_paragraphs(paragraphs, max_chars=300, max_buckets=2)
     messages = list(ai_messages)
 
-    # 建立連結訊息
     if articles:
         links = "\n\n".join([
             f"🔗 {a['title']}\n{a['url']}"
@@ -75,10 +96,19 @@ def create_handler(line_bot_api, parser, api_client):
                 save_user(event.source.user_id)
 
             elif isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
+                is_group = isinstance(event.source, GroupSource)
                 user_id = event.source.user_id
-                user_message = event.message.text.strip()
-
                 save_user(user_id)
+
+                # 群組模式：只有 @TAG 才回應
+                if is_group:
+                    if not is_bot_mentioned(event.message):
+                        continue
+                    user_message = strip_mentions(event.message)
+                    if not user_message:
+                        continue
+                else:
+                    user_message = event.message.text.strip()
 
                 history = get_conversation_history(user_id, limit=6)
                 articles = search_articles(user_message)
@@ -94,6 +124,10 @@ def create_handler(line_bot_api, parser, api_client):
                 ))
 
             elif isinstance(event, MessageEvent) and isinstance(event.message, ImageMessageContent):
+                # 群組圖片不處理（無法 @TAG 圖片）
+                if isinstance(event.source, GroupSource):
+                    continue
+
                 user_id = event.source.user_id
                 save_user(user_id)
 
