@@ -1,97 +1,80 @@
 import os
-import sqlite3
-from contextlib import contextmanager
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
 
-DB_DEFAULT = "data/scam_bot.db"
+load_dotenv()
 
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-def _get_db_path() -> str:
-    return os.environ.get("DB_PATH", DB_DEFAULT)
-
-
-@contextmanager
 def _get_conn():
-    db_path = _get_db_path()
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+    return psycopg2.connect(DATABASE_URL)
 
-
-def init_db() -> None:
+def init_db():
     with _get_conn() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS articles (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                title       TEXT NOT NULL,
-                content     TEXT,
-                summary     TEXT,
-                url         TEXT UNIQUE NOT NULL,
-                source      TEXT,
-                published_at TEXT,
-                created_at  TEXT DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS users (
-                line_user_id TEXT PRIMARY KEY,
-                created_at   TEXT DEFAULT (datetime('now'))
-            );
-        """)
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS articles (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    content TEXT,
+                    summary TEXT,
+                    url TEXT UNIQUE NOT NULL,
+                    source TEXT,
+                    published_at TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    line_user_id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        conn.commit()
 
-
-def save_article(title: str, content: str, summary: str, url: str, source: str, published_at: str) -> bool:
+def save_article(title, content, summary, url, source, published_at):
     try:
         with _get_conn() as conn:
-            conn.execute(
-                "INSERT INTO articles (title, content, summary, url, source, published_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (title, content, summary, url, source, published_at),
-            )
-        return True
-    except sqlite3.IntegrityError:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO articles (title, content, summary, url, source, published_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (title, content, summary, url, source, published_at)
+                )
+            conn.commit()
+            return True
+    except Exception:
         return False
 
-
-def search_articles(keyword: str) -> list[dict]:
+def search_articles(keyword):
     with _get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, summary, url, source, published_at
-            FROM articles
-            WHERE title LIKE ? OR content LIKE ?
-            ORDER BY created_at DESC
-            LIMIT 5
-            """,
-            (f"%{keyword}%", f"%{keyword}%"),
-        ).fetchall()
-    return [dict(row) for row in rows]
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, title, summary, url, source, published_at FROM articles WHERE title ILIKE %s OR content ILIKE %s ORDER BY created_at DESC LIMIT 5",
+                (f"%{keyword}%", f"%{keyword}%")
+            )
+            return [dict(row) for row in cur.fetchall()]
 
-
-def get_all_user_ids() -> list[str]:
+def get_all_user_ids():
     with _get_conn() as conn:
-        rows = conn.execute("SELECT line_user_id FROM users").fetchall()
-    return [row["line_user_id"] for row in rows]
+        with conn.cursor() as cur:
+            cur.execute("SELECT line_user_id FROM users")
+            return [row[0] for row in cur.fetchall()]
 
-
-def save_user(line_user_id: str) -> None:
+def save_user(line_user_id):
     with _get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO users (line_user_id) VALUES (?)",
-            (line_user_id,),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (line_user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                (line_user_id,)
+            )
+        conn.commit()
 
-
-def get_latest_articles(limit: int = 3) -> list[dict]:
+def get_latest_articles(limit=3):
     with _get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, summary, url, source, published_at
-            FROM articles
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-    return [dict(row) for row in rows]
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, title, summary, url, source, published_at FROM articles ORDER BY created_at DESC LIMIT %s",
+                (limit,)
+            )
+            return [dict(row) for row in cur.fetchall()]
