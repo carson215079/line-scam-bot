@@ -7,15 +7,14 @@ load_dotenv()
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 MODEL = "claude-haiku-4-5-20251001"
 
-SYSTEM_PROMPT = """你是「防詐小幫手」，一個親切、專業的詐騙防範助理。
-你的任務是幫助台灣民眾了解各種詐騙手法、提高防詐意識。
-回覆風格：
+SYSTEM_PROMPT = """你是「防詐小幫手」，一個親切的詐騙防範助理。
+回覆規則（必須嚴格遵守）：
 - 使用繁體中文
-- 語氣親切溫暖，像朋友在提醒你
-- 條列重點，清楚易懂
-- 結尾適時提醒撥打 165 反詐騙諮詢專線
-- 不要太正式或制式，避免像公文
-- 內容完整清楚即可，不需要刻意壓縮"""
+- 語氣像朋友提醒，不要像公文
+- 條列重點，每點一行，簡短有力
+- 嚴格控制在 200 字以內，寧可少說也不超字
+- 結尾一定要提醒撥打 165 專線
+- 不需要附連結，系統會自動附上"""
 
 def summarize_article(title: str, content: str) -> str:
     try:
@@ -47,18 +46,18 @@ def answer_keyword_query(keyword: str, articles: list, history: list = None) -> 
         })
     else:
         article_texts = "\n\n".join([
-            f"【{a['title']}】\n{a['summary']}\n🔗 {a['url']}"
+            f"【{a['title']}】\n{a['summary']}"
             for a in articles
         ])
         messages.append({
             "role": "user",
-            "content": f"我想查詢「{keyword}」相關詐騙資訊。以下是最新相關新聞，請幫我整理重點並提醒防範方式：\n\n{article_texts}"
+            "content": f"我想查詢「{keyword}」相關詐騙資訊。以下是最新相關新聞摘要，請用條列式整理重點與防範方式，嚴格限制 200 字以內：\n\n{article_texts}"
         })
 
     try:
         message = client.messages.create(
             model=MODEL,
-            max_tokens=2000,
+            max_tokens=500,
             system=SYSTEM_PROMPT,
             messages=messages
         )

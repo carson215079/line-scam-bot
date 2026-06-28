@@ -4,21 +4,25 @@ from linebot.v3.messaging import TextMessage, ReplyMessageRequest
 from db.database import save_user, search_articles, save_message, get_conversation_history
 from ai.summarizer import answer_keyword_query
 
-def split_message(text: str, max_chars: int = 500, max_parts: int = 5) -> list:
-    if len(text) <= max_chars:
-        return [text]
-    parts = []
-    while text and len(parts) < max_parts:
-        if len(text) <= max_chars:
-            parts.append(text)
-            break
-        # 在 max_chars 內找最近的換行點切割
-        cut = text.rfind("\n", 0, max_chars)
-        if cut == -1:
-            cut = max_chars
-        parts.append(text[:cut].strip())
-        text = text[cut:].strip()
-    return parts
+def build_messages(reply_text: str, articles: list) -> list:
+    """訊息一：AI 回覆（最多 300 字）；訊息二：新聞連結（有文章時才附）"""
+    msg1 = reply_text.strip()
+    if len(msg1) > 300:
+        msg1 = msg1[:297] + "..."
+
+    result = [msg1]
+
+    if articles:
+        links = "\n".join([
+            f"🔗 {a['title']}\n{a['url']}"
+            for a in articles[:3]
+        ])
+        msg2 = f"📰 相關新聞連結：\n{links}"
+        if len(msg2) > 300:
+            msg2 = msg2[:297] + "..."
+        result.append(msg2)
+
+    return result
 
 def create_handler(line_bot_api, parser):
     bp = Blueprint("handler", __name__)
@@ -55,8 +59,8 @@ def create_handler(line_bot_api, parser):
                 save_message(user_id, "user", user_message)
                 save_message(user_id, "assistant", reply_text)
 
-                # 超過 500 字自動拆成多則（Line 最多 5 則）
-                messages = split_message(reply_text, max_chars=500, max_parts=5)
+                # 訊息一：AI 回覆（≤300字），訊息二：新聞連結
+                messages = build_messages(reply_text, articles)
                 line_bot_api.reply_message(ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=m) for m in messages]
