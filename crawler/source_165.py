@@ -1,36 +1,29 @@
 import requests
-from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
 from crawler.base import BaseCrawler
 
-BASE_URL = "https://165.npa.gov.tw"
-LIST_URL = f"{BASE_URL}/web/index-1.html"
+RSS_URL = "https://news.google.com/rss/search?q=165+%E5%8F%8D%E8%A9%90%E9%A8%99+%E8%AD%A6%E5%AF%9F&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
 
 class Crawler165(BaseCrawler):
     def fetch(self) -> list:
+        articles = []
         try:
-            resp = requests.get(LIST_URL, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            soup = BeautifulSoup(resp.text, "html.parser")
-            articles = []
-            for item in soup.select(".list-group-item a")[:5]:
-                href = item.get("href", "")
-                url = href if href.startswith("http") else BASE_URL + href
-                title = item.get_text(strip=True)
-                if not title:
+            resp = requests.get(RSS_URL, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            resp.encoding = "utf-8"
+            root = ET.fromstring(resp.content)
+            for item in root.findall(".//item")[:10]:
+                title = item.findtext("title", "").strip()
+                url = item.findtext("link", "").strip()
+                pub_date = item.findtext("pubDate", "").strip()
+                if not title or not url:
                     continue
-                try:
-                    detail = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-                    detail_soup = BeautifulSoup(detail.text, "html.parser")
-                    content = detail_soup.select_one(".article-content, .content, article p")
-                    content_text = content.get_text(strip=True) if content else title
-                except Exception:
-                    content_text = title
                 articles.append({
                     "title": title,
-                    "content": content_text[:2000],
+                    "content": title,
                     "url": url,
-                    "published_at": ""
+                    "source": "165",
+                    "published_at": pub_date
                 })
-            return articles
         except Exception as e:
             print(f"[Crawler165] 爬取失敗: {e}")
-            return []
+        return articles
