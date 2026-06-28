@@ -4,34 +4,43 @@ from linebot.v3.messaging import TextMessage, ReplyMessageRequest
 from db.database import save_user, search_articles, save_message, get_conversation_history
 from ai.summarizer import answer_keyword_query
 
-def smart_truncate(text: str, max_chars: int) -> str:
-    """在段落邊界截斷，避免截斷在句子中間"""
-    if len(text) <= max_chars:
-        return text
-    # 優先在空行（段落）邊界截
-    cut = text.rfind("\n\n", 0, max_chars)
-    if cut == -1:
-        # 退而求其次在換行截
-        cut = text.rfind("\n", 0, max_chars)
-    if cut == -1:
-        # 最後才硬切
-        cut = max_chars
-    return text[:cut].strip()
-
 def build_messages(reply_text: str, articles: list) -> list:
-    """訊息一：AI 回覆（≤300字，按段落截斷）；訊息二：新聞連結"""
-    msg1 = smart_truncate(reply_text.strip(), 300)
-    result = [msg1]
+    """
+    將段落逐一分配到訊息一（≤300字），溢出段落 + 新聞連結放訊息二。
+    永遠不在段落中間截斷。
+    """
+    paragraphs = [p.strip() for p in reply_text.strip().split("\n\n") if p.strip()]
 
+    msg1_parts, overflow_parts = [], []
+    char_count = 0
+    for p in paragraphs:
+        # +2 是補回 \n\n 的長度
+        if char_count + len(p) + 2 <= 300:
+            msg1_parts.append(p)
+            char_count += len(p) + 2
+        else:
+            overflow_parts.append(p)
+
+    messages = []
+    if msg1_parts:
+        messages.append("\n\n".join(msg1_parts))
+
+    # 訊息二：溢出段落 + 新聞連結
+    parts2 = list(overflow_parts)
     if articles:
         links = "\n".join([
             f"🔗 {a['title']}\n{a['url']}"
             for a in articles[:3]
         ])
-        msg2 = f"📰 相關新聞連結：\n{links}"
-        result.append(smart_truncate(msg2, 300))
+        parts2.append(f"📰 相關新聞連結：\n{links}")
 
-    return result
+    if parts2:
+        msg2 = "\n\n".join(parts2)
+        if len(msg2) > 300:
+            msg2 = msg2[:297] + "..."
+        messages.append(msg2)
+
+    return messages if messages else [reply_text.strip()]
 
 def create_handler(line_bot_api, parser):
     bp = Blueprint("handler", __name__)
