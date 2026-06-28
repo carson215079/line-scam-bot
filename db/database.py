@@ -29,6 +29,15 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversations (
+                id SERIAL PRIMARY KEY,
+                line_user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
         conn.commit()
 
 def save_article(title, content, summary, url, source, published_at):
@@ -73,3 +82,22 @@ def get_latest_articles(limit=3):
         ).fetchall()
         cols = ["id", "title", "summary", "url", "source", "published_at"]
         return [dict(zip(cols, row)) for row in rows]
+
+def save_message(line_user_id, role, content):
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO conversations (line_user_id, role, content) VALUES (%s, %s, %s)",
+            (line_user_id, role, content)
+        )
+        conn.commit()
+
+def get_conversation_history(line_user_id, limit=6):
+    """取得最近 N 則對話（保持偶數，維持 user/assistant 交替）"""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT role, content FROM conversations WHERE line_user_id = %s ORDER BY created_at DESC LIMIT %s",
+            (line_user_id, limit)
+        ).fetchall()
+    # 反轉成時間正序
+    history = [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+    return history
