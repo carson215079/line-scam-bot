@@ -4,12 +4,23 @@ from linebot.v3.messaging import TextMessage, ReplyMessageRequest
 from db.database import save_user, search_articles, save_message, get_conversation_history
 from ai.summarizer import answer_keyword_query
 
-def build_messages(reply_text: str, articles: list) -> list:
-    """訊息一：AI 回覆（最多 300 字）；訊息二：新聞連結（有文章時才附）"""
-    msg1 = reply_text.strip()
-    if len(msg1) > 300:
-        msg1 = msg1[:297] + "..."
+def smart_truncate(text: str, max_chars: int) -> str:
+    """在段落邊界截斷，避免截斷在句子中間"""
+    if len(text) <= max_chars:
+        return text
+    # 優先在空行（段落）邊界截
+    cut = text.rfind("\n\n", 0, max_chars)
+    if cut == -1:
+        # 退而求其次在換行截
+        cut = text.rfind("\n", 0, max_chars)
+    if cut == -1:
+        # 最後才硬切
+        cut = max_chars
+    return text[:cut].strip()
 
+def build_messages(reply_text: str, articles: list) -> list:
+    """訊息一：AI 回覆（≤300字，按段落截斷）；訊息二：新聞連結"""
+    msg1 = smart_truncate(reply_text.strip(), 300)
     result = [msg1]
 
     if articles:
@@ -18,9 +29,7 @@ def build_messages(reply_text: str, articles: list) -> list:
             for a in articles[:3]
         ])
         msg2 = f"📰 相關新聞連結：\n{links}"
-        if len(msg2) > 300:
-            msg2 = msg2[:297] + "..."
-        result.append(msg2)
+        result.append(smart_truncate(msg2, 300))
 
     return result
 
