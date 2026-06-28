@@ -4,43 +4,58 @@ from linebot.v3.messaging import TextMessage, ReplyMessageRequest
 from db.database import save_user, search_articles, save_message, get_conversation_history
 from ai.summarizer import answer_keyword_query
 
-def build_messages(reply_text: str, articles: list) -> list:
+def distribute_paragraphs(paragraphs: list, max_chars: int = 300, max_buckets: int = 2) -> list:
+    """將段落依序填入每個 bucket（≤max_chars），回傳最多 max_buckets 個字串"""
+    buckets = []
+    current_parts = []
+    current_len = 0
+
+    for p in paragraphs:
+        if len(buckets) >= max_buckets - 1 and current_parts:
+            # 已達最後一個 bucket，剩下全塞進來
+            current_parts.append(p)
+        elif current_len + len(p) + 2 <= max_chars:
+            current_parts.append(p)
+            current_len += len(p) + 2
+        else:
+            if current_parts:
+                buckets.append("\n\n".join(current_parts))
+            current_parts = [p]
+            current_len = len(p) + 2
+
+    if current_parts:
+        buckets.append("\n\n".join(current_parts))
+
+    return buckets
+
+def build_messages(reply_text: str, articles: list, keyword: str = "") -> list:
     """
-    將段落逐一分配到訊息一（≤300字），溢出段落 + 新聞連結放訊息二。
-    永遠不在段落中間截斷。
+    最多 3 則訊息：
+    - 訊息一、二：AI 回覆段落（每則 ≤300字）
+    - 訊息三：新聞連結（DB 有結果用真實連結；否則附 Google 新聞搜尋）
     """
     paragraphs = [p.strip() for p in reply_text.strip().split("\n\n") if p.strip()]
+    ai_messages = distribute_paragraphs(paragraphs, max_chars=300, max_buckets=2)
+    messages = list(ai_messages)
 
-    msg1_parts, overflow_parts = [], []
-    char_count = 0
-    for p in paragraphs:
-        # +2 是補回 \n\n 的長度
-        if char_count + len(p) + 2 <= 300:
-            msg1_parts.append(p)
-            char_count += len(p) + 2
-        else:
-            overflow_parts.append(p)
-
-    messages = []
-    if msg1_parts:
-        messages.append("\n\n".join(msg1_parts))
-
-    # 訊息二：溢出段落 + 新聞連結
-    parts2 = list(overflow_parts)
+    # 建立連結訊息
     if articles:
-        links = "\n".join([
+        links = "\n\n".join([
             f"🔗 {a['title']}\n{a['url']}"
             for a in articles[:3]
         ])
-        parts2.append(f"📰 相關新聞連結：\n{links}")
+        link_msg = f"📰 相關新聞連結：\n\n{links}"
+    else:
+        import urllib.parse
+        query = urllib.parse.quote(keyword or "詐騙")
+        search_url = f"https://news.google.com/search?q={query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+        link_msg = f"📰 目前資料庫尚無相關新聞，可至 Google 新聞搜尋最新資訊：\n\n{search_url}"
 
-    if parts2:
-        msg2 = "\n\n".join(parts2)
-        if len(msg2) > 300:
-            msg2 = msg2[:297] + "..."
-        messages.append(msg2)
+    if len(link_msg) > 300:
+        link_msg = link_msg[:297] + "..."
+    messages.append(link_msg)
 
-    return messages if messages else [reply_text.strip()]
+    return messages
 
 def create_handler(line_bot_api, parser):
     bp = Blueprint("handler", __name__)
@@ -77,8 +92,8 @@ def create_handler(line_bot_api, parser):
                 save_message(user_id, "user", user_message)
                 save_message(user_id, "assistant", reply_text)
 
-                # 訊息一：AI 回覆（≤300字），訊息二：新聞連結
-                messages = build_messages(reply_text, articles)
+                # 最多 3 則：AI 回覆（最多 2 則）+ 新聞連結（第 3 則）
+                messages = build_messages(reply_text, articles, keyword=user_message)
                 line_bot_api.reply_message(ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=m) for m in messages]
