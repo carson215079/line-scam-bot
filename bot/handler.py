@@ -9,12 +9,24 @@ from db.database import save_user, search_articles, save_message, get_conversati
 from ai.summarizer import answer_keyword_query, analyze_image_for_scam
 
 def is_bot_mentioned(message) -> bool:
-    """檢查訊息是否有 @TAG 到機器人（is_self=True）"""
+    """
+    檢查訊息是否有 @TAG 到機器人。
+    優先用 is_self=True；若 SDK 未回傳 is_self（None），
+    只要有任何 mentionee 且訊息含 @ 就視為觸發。
+    """
     mention = getattr(message, "mention", None)
     if not mention:
         return False
     mentionees = getattr(mention, "mentionees", None) or []
-    return any(getattr(m, "is_self", False) for m in mentionees)
+    if not mentionees:
+        return False
+    for m in mentionees:
+        is_self = getattr(m, "is_self", None)
+        if is_self is True:
+            return True
+        if is_self is None and "@" in getattr(message, "text", ""):
+            return True
+    return False
 
 def strip_mentions(message) -> str:
     """移除訊息中所有 @mention 後回傳純文字"""
