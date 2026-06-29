@@ -151,10 +151,6 @@ def create_handler(line_bot_api, parser, api_client):
                 ))
 
             elif isinstance(event, MessageEvent) and isinstance(event.message, ImageMessageContent):
-                # 群組圖片不處理（無法 @TAG 圖片）
-                if isinstance(event.source, GroupSource):
-                    continue
-
                 user_id = event.source.user_id
                 save_user(user_id)
 
