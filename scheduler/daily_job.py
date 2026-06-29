@@ -41,10 +41,10 @@ def run_broadcast_job(line_bot_api):
     message_text += "═══════════════════\n\n"
     for i, article in enumerate(latest, 1):
         message_text += f"【{i}】{article['title']}\n\n"
-        message_text += f"📋 {article['summary']}\n"
+        message_text += f"📋 {article['summary']}\n\n"
+        message_text += f"🔗 原文連結：\n{article['url']}\n"
         message_text += "───────────────────\n\n"
-    message_text += "⚠️ 如有疑問請撥打 165 反詐騙諮詢專線\n"
-    message_text += "🔍 想了解更多可直接傳關鍵字給我查詢"
+    message_text += "⚠️ 如有疑問請撥打 165 反詐騙諮詢專線"
 
     try:
         line_bot_api.broadcast(BroadcastRequest(messages=[TextMessage(text=message_text)]))
