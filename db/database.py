@@ -83,6 +83,19 @@ def get_latest_articles(limit=3):
         cols = ["id", "title", "summary", "url", "source", "published_at"]
         return [dict(zip(cols, row)) for row in rows]
 
+def get_db_stats() -> dict:
+    with _get_conn() as conn:
+        article_count = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+        user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        latest = conn.execute(
+            "SELECT created_at FROM articles ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return {
+        "article_count": article_count,
+        "user_count": user_count,
+        "latest_crawl": latest[0].strftime("%Y-%m-%d %H:%M") if latest else "無資料"
+    }
+
 def save_message(line_user_id, role, content):
     with _get_conn() as conn:
         conn.execute(

@@ -5,7 +5,7 @@ from linebot.v3.webhooks import (
     FollowEvent, GroupSource
 )
 from linebot.v3.messaging import TextMessage, ReplyMessageRequest, MessagingApiBlob
-from db.database import save_user, search_articles, save_message, get_conversation_history
+from db.database import save_user, search_articles, save_message, get_conversation_history, get_db_stats
 from ai.summarizer import answer_keyword_query, analyze_image_for_scam
 
 def is_bot_mentioned(message) -> bool:
@@ -121,6 +121,21 @@ def create_handler(line_bot_api, parser, api_client):
                         continue
                 else:
                     user_message = event.message.text.strip()
+
+                # 統計指令
+                if user_message == "統計":
+                    stats = get_db_stats()
+                    reply_text = (
+                        f"📊 資料庫統計\n\n"
+                        f"📰 新聞文章：{stats['article_count']} 筆\n"
+                        f"👤 使用者：{stats['user_count']} 人\n"
+                        f"🕐 最新爬取：{stats['latest_crawl']}"
+                    )
+                    line_bot_api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=reply_text)]
+                    ))
+                    continue
 
                 history = get_conversation_history(user_id, limit=6)
                 articles = search_articles(user_message)
