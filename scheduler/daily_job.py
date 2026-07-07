@@ -10,11 +10,11 @@ def run_crawl_job():
     articles = run_all_crawlers()
     new_count = 0
     for article in articles:
-        summary = summarize_article(article["title"], article["content"])
+        result = summarize_article(article["title"], article["content"])
         saved = save_article(
-            title=article["title"],
+            title=result["title"],
             content=article["content"],
-            summary=summary,
+            summary=result["summary"],
             url=article["url"],
             source=article.get("source", "news"),
             published_at=article.get("published_at", "")

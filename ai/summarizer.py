@@ -28,20 +28,41 @@ SYSTEM_PROMPT = """你是「防詐小幫手」，一個親切的詐騙防範助�
 - 全文控制在 200 字以內
 - 不需要附連結"""
 
-def summarize_article(title: str, content: str) -> str:
+ARTICLE_SYSTEM_PROMPT = """你是新聞整理助理，專門整理詐騙防範相關資訊。
+請根據指示精簡回覆，不要加入多餘內容。"""
+
+def summarize_article(title: str, content: str) -> dict:
+    """
+    用 AI 生成標題與摘要，回傳 {"title": ..., "summary": ...}。
+    標題：20 字以內，清楚易懂。
+    摘要：80 字以內，不限形式（詐騙案例、宣導活動皆可）。
+    """
     try:
         message = client.messages.create(
             model=MODEL,
-            max_tokens=300,
-            system=SYSTEM_PROMPT,
+            max_tokens=200,
+            system=ARTICLE_SYSTEM_PROMPT,
             messages=[{
                 "role": "user",
-                "content": f"請用 100 字以內摘要這則詐騙新聞，重點說明詐騙手法與防範方式：\n\n標題：{title}\n內容：{content[:1000]}"
+                "content": (
+                    f"請根據以下新聞整理出標題與摘要：\n\n"
+                    f"原標題：{title}\n內容：{content[:1000]}\n\n"
+                    "回覆格式（只輸出這兩行，不要其他文字）：\n"
+                    "標題：（20字以內，清楚易懂）\n"
+                    "摘要：（80字以內，說明文章重點，不限詐騙手法，宣導類也可摘要宣導內容）"
+                )
             }]
         )
-        return message.content[0].text
+        text = message.content[0].text.strip()
+        ai_title, ai_summary = title, ""
+        for line in text.split("\n"):
+            if line.startswith("標題："):
+                ai_title = line.replace("標題：", "").strip() or title
+            elif line.startswith("摘要："):
+                ai_summary = line.replace("摘要：", "").strip()
+        return {"title": ai_title, "summary": ai_summary or text}
     except Exception:
-        return content[:150] + "..." if len(content) > 150 else content
+        return {"title": title, "summary": content[:150] + "..." if len(content) > 150 else content}
 
 def analyze_image_for_scam(image_b64: str, media_type: str = "image/jpeg") -> tuple:
     """分析圖片是否涉及詐騙，回傳 (分析文字, 搜尋關鍵字)"""
