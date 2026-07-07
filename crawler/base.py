@@ -2,16 +2,25 @@ import requests
 from abc import ABC, abstractmethod
 
 def resolve_url(url: str) -> str:
-    """跟隨 Google News 轉址，取得真實文章 URL"""
+    """
+    嘗試跟隨轉址取得真實文章 URL。
+    若 Google News 防爬導致失敗，至少把 RSS 格式轉成可開啟的網頁格式。
+    """
     try:
         r = requests.get(
             url, allow_redirects=True, timeout=8,
             headers={"User-Agent": "Mozilla/5.0"}, stream=True
         )
         r.close()
-        return r.url
+        final = r.url
     except Exception:
-        return url
+        final = url
+
+    # Google News RSS URL → 轉成可開啟的網頁版 URL
+    if "news.google.com/rss/articles/" in final:
+        final = final.replace("/rss/articles/", "/articles/").split("?")[0]
+
+    return final
 
 class BaseCrawler(ABC):
     @abstractmethod
