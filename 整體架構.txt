@@ -1,0 +1,86 @@
+整體架構
+========
+
+一、技術棧
+-----------
+語言            Python 3.14
+Web Framework   Flask
+LINE SDK        line-bot-sdk v3
+AI 模型         Claude Haiku (claude-haiku-4-5-20251001)
+資料庫          PostgreSQL (psycopg3)
+排程            APScheduler
+部署            Render (免費方案)
+保活            cron-job.org (每 10 分鐘 ping)
+
+
+二、專案結構
+-------------
+Linebot/
+├── main.py                      # 入口，Flask app + 排程啟動
+├── requirements.txt
+├── .env                         # 本機環境變數（不進版控）
+│
+├── bot/
+│   └── handler.py               # LINE Webhook 處理
+│
+├── ai/
+│   └── summarizer.py            # AI 功能（摘要 / 問答 / 圖片分析）
+│
+├── db/
+│   └── database.py              # 資料庫操作
+│
+├── crawler/
+│   ├── base.py                  # 爬蟲基底 + resolve_url
+│   ├── source_165.py            # Google News RSS（165 反詐騙）
+│   └── source_news.py           # Google News RSS（詐騙台灣）
+│
+├── scheduler/
+│   └── daily_job.py             # 定時爬蟲 + 每日推播
+│
+└── scripts/
+    └── remigrate_articles.py    # 一次性舊資料更新腳本
+
+
+三、資料庫 Tables
+------------------
+articles        爬蟲文章（標題、摘要、URL、來源）
+users           LINE 用戶 ID
+conversations   對話歷史（支援多輪對話）
+
+
+四、核心流程
+-------------
+【爬蟲（每 3 小時）】
+Google News RSS → 解析文章 → resolve_url 取得真實連結
+→ AI 生成標題 + 摘要 → 存入 DB（URL 唯一，自動擋重複）
+
+【用戶傳文字】
+LINE Webhook → 搜尋 DB → AI 整理回覆
+→ 最多 3 則訊息（AI 內容 + 新聞連結）
+
+【用戶傳圖片（私訊限定）】
+LINE Webhook → 下載圖片 → Claude Vision 分析
+→ 判斷是否詐騙 + 萃取關鍵字 → 搜尋 DB → 回覆
+
+【群組模式】
+需 @TAG 機器人才回應文字
+圖片忽略（避免干擾群組聊天）
+
+【每日推播（早上 9:00）】
+取最新 5 篇文章 → 廣播給所有用戶
+格式：標題 + AI 摘要 + 原文連結
+
+
+五、環境變數（Render 設定）
+-----------------------------
+LINE_CHANNEL_ACCESS_TOKEN
+LINE_CHANNEL_SECRET
+ANTHROPIC_API_KEY
+DATABASE_URL
+ADMIN_KEY
+
+
+六、特殊指令
+-------------
+統計                                    查詢 DB 文章數、用戶數、最新入庫時間
+/admin/remigrate?key=ADMIN_KEY          瀏覽器觸發舊資料重新整理（標題、摘要、URL）
