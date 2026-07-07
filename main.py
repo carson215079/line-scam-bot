@@ -1,5 +1,5 @@
 import os
-from flask import Flask
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from linebot.v3 import WebhookParser
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
@@ -22,6 +22,16 @@ init_db()
 @app.route("/")
 def index():
     return "OK", 200
+
+@app.route("/admin/remigrate")
+def remigrate():
+    key = request.args.get("key", "")
+    if key != os.getenv("ADMIN_KEY", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import threading
+    from scripts.remigrate_articles import run
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"status": "started"}), 200
 
 handler_bp = create_handler(line_bot_api, parser, api_client)
 app.register_blueprint(handler_bp)
