@@ -84,19 +84,25 @@ def get_latest_articles(limit=3):
         return [dict(zip(cols, row)) for row in rows]
 
 def get_all_articles_raw():
-    """取得所有文章的 id、title、content（供重新整理用）"""
+    """取得所有文章的 id、title、content、url（供重新整理用）"""
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, title, content FROM articles ORDER BY id"
+            "SELECT id, title, content, url FROM articles ORDER BY id"
         ).fetchall()
-    return [{"id": row[0], "title": row[1], "content": row[2]} for row in rows]
+    return [{"id": row[0], "title": row[1], "content": row[2], "url": row[3]} for row in rows]
 
-def update_article_title_summary(article_id: int, title: str, summary: str):
+def update_article_title_summary(article_id: int, title: str, summary: str, url: str = None):
     with _get_conn() as conn:
-        conn.execute(
-            "UPDATE articles SET title=%s, summary=%s WHERE id=%s",
-            (title, summary, article_id)
-        )
+        if url:
+            conn.execute(
+                "UPDATE articles SET title=%s, summary=%s, url=%s WHERE id=%s",
+                (title, summary, url, article_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE articles SET title=%s, summary=%s WHERE id=%s",
+                (title, summary, article_id)
+            )
         conn.commit()
 
 def get_db_stats() -> dict:
