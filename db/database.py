@@ -83,6 +83,22 @@ def get_latest_articles(limit=3):
         cols = ["id", "title", "summary", "url", "source", "published_at"]
         return [dict(zip(cols, row)) for row in rows]
 
+def get_all_articles_raw():
+    """取得所有文章的 id、title、content（供重新整理用）"""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, title, content FROM articles ORDER BY id"
+        ).fetchall()
+    return [{"id": row[0], "title": row[1], "content": row[2]} for row in rows]
+
+def update_article_title_summary(article_id: int, title: str, summary: str):
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE articles SET title=%s, summary=%s WHERE id=%s",
+            (title, summary, article_id)
+        )
+        conn.commit()
+
 def get_db_stats() -> dict:
     with _get_conn() as conn:
         article_count = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
