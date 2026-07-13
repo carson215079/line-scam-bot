@@ -25,10 +25,11 @@ def index():
 
 @app.route("/admin/remigrate")
 def remigrate():
+    import hmac
     key = request.args.get("key", "")
     admin_key = os.getenv("ADMIN_KEY", "")
-    # ADMIN_KEY 未設定時一律拒絕，避免空字串比對通過
-    if not admin_key or key != admin_key:
+    # ADMIN_KEY 未設定時一律拒絕；compare_digest 防時序攻擊
+    if not admin_key or not hmac.compare_digest(key, admin_key):
         return jsonify({"error": "unauthorized"}), 403
     import threading
     from scripts.remigrate_articles import run
