@@ -1,5 +1,5 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-from crawler.base import run_all_crawlers
+from crawler.base import run_all_crawlers, fetch_article_text
 from ai.summarizer import summarize_article
 from db.database import save_article, article_exists, get_all_user_ids, get_latest_articles, cleanup_old_conversations
 from linebot.v3.messaging import TextMessage, BroadcastRequest
@@ -13,10 +13,12 @@ def run_crawl_job():
         # 已存在的文章直接跳過，避免重複呼叫 AI 浪費 API 額度
         if article_exists(article["url"]):
             continue
-        result = summarize_article(article["title"], article["content"])
+        # 抓取文章內文讓 AI 讀全文摘要；抓不到就 fallback 用標題
+        content = fetch_article_text(article["url"]) or article["content"]
+        result = summarize_article(article["title"], content)
         saved = save_article(
             title=result["title"],
-            content=article["content"],
+            content=content,
             summary=result["summary"],
             url=article["url"],
             source=article.get("source", "news"),

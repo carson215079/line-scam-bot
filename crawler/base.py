@@ -22,6 +22,30 @@ def resolve_url(url: str) -> str:
 
     return final
 
+def fetch_article_text(url: str, max_chars: int = 2000) -> str:
+    """
+    抓取文章頁面並萃取內文（供 AI 摘要用）。
+    抓不到（防爬、逾時、仍是 Google News 轉址頁）就回傳空字串，由呼叫端 fallback 標題。
+    """
+    # Google News 頁面是 JS 動態載入，抓不到內文
+    if "news.google.com" in url:
+        return ""
+    try:
+        from bs4 import BeautifulSoup
+        resp = requests.get(
+            url, timeout=8,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            tag.decompose()
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p")]
+        text = "\n".join(p for p in paragraphs if len(p) > 20)
+        return text[:max_chars]
+    except Exception:
+        return ""
+
 class BaseCrawler(ABC):
     @abstractmethod
     def fetch(self) -> list:
