@@ -5,8 +5,18 @@ from linebot.v3.webhooks import (
     FollowEvent, GroupSource
 )
 from linebot.v3.messaging import TextMessage, ReplyMessageRequest, PushMessageRequest, MessagingApiBlob
-from db.database import save_user, search_articles, save_message, get_conversation_history, get_db_stats
+from db.database import (
+    save_user, search_articles, save_message,
+    get_conversation_history, get_db_stats, count_recent_user_messages
+)
 from ai.summarizer import answer_keyword_query, analyze_image_for_scam, extract_scam_keyword
+
+# 每人每 24 小時的訊息上限（超過即不呼叫 AI，避免 API 額度被惡意燒光）
+DAILY_MESSAGE_LIMIT = 30
+LIMIT_EXCEEDED_REPLY = (
+    "今日的查詢次數已達上限（30 次），請明天再來詢問。\n\n"
+    "如有緊急詐騙疑慮，請直接撥打 165 反詐騙諮詢專線。"
+)
 
 def is_bot_mentioned(message, bot_user_id: str = None) -> bool:
     """
@@ -149,6 +159,11 @@ def create_handler(line_bot_api, parser, api_client):
             safe_reply(event, [TextMessage(text=reply_text)])
             return
 
+        # 防濫用：超過每日限額就不呼叫 AI
+        if user_id and count_recent_user_messages(user_id) >= DAILY_MESSAGE_LIMIT:
+            safe_reply(event, [TextMessage(text=LIMIT_EXCEEDED_REPLY)])
+            return
+
         history = get_conversation_history(user_id, limit=6) if user_id else []
 
         # 先用原句搜尋；落空時讓 AI 萃取關鍵詞再搜一次
@@ -178,6 +193,11 @@ def create_handler(line_bot_api, parser, api_client):
         user_id = getattr(event.source, "user_id", None)
         if user_id:
             save_user(user_id)
+
+        # 防濫用：圖片分析同樣計入每日限額
+        if user_id and count_recent_user_messages(user_id) >= DAILY_MESSAGE_LIMIT:
+            safe_reply(event, [TextMessage(text=LIMIT_EXCEEDED_REPLY)])
+            return
 
         try:
             content = blob_api.get_message_content(event.message.id)

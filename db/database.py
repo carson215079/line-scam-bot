@@ -134,6 +134,17 @@ def save_message(line_user_id, role, content):
         )
         conn.commit()
 
+def count_recent_user_messages(line_user_id, hours: int = 24) -> int:
+    """計算用戶在最近 N 小時內傳送的訊息數（防濫用限額用）"""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM conversations "
+            "WHERE line_user_id = %s AND role = 'user' "
+            "AND created_at >= NOW() - make_interval(hours => %s)",
+            (line_user_id, hours)
+        ).fetchone()
+    return row[0]
+
 def cleanup_old_conversations(days: int = 30) -> int:
     """刪除超過 N 天的舊對話紀錄，回傳刪除筆數"""
     with _get_conn() as conn:
