@@ -40,18 +40,21 @@ def run_broadcast_job(line_bot_api):
         print("[broadcast] 無文章可推播")
         return
 
-    message_text = "🚨 今日詐騙資訊宣導 🚨\n"
-    message_text += "═══════════════════\n\n"
+    # 每篇文章一則訊息，好讀且預覽卡片各歸各（LINE 單次上限 5 則）
+    total = len(latest)
+    messages = []
     for i, article in enumerate(latest, 1):
-        message_text += f"【{i}】{article['title']}\n\n"
-        message_text += f"📋 {article['summary']}\n\n"
-        message_text += f"🔗 原文連結：\n{article['url']}\n"
-        message_text += "───────────────────\n\n"
-    message_text += "⚠️ 如有疑問請撥打 165 反詐騙諮詢專線"
+        text = f"🚨 今日詐騙資訊宣導【{i}/{total}】\n\n"
+        text += f"📌 {article['title']}\n\n"
+        text += f"📋 {article['summary']}\n\n"
+        text += f"🔗 {article['url']}"
+        if i == total:
+            text += "\n\n⚠️ 如有疑問請撥打 165 反詐騙諮詢專線"
+        messages.append(TextMessage(text=text))
 
     try:
-        line_bot_api.broadcast(BroadcastRequest(messages=[TextMessage(text=message_text)]))
-        print("[broadcast] 推播完成")
+        line_bot_api.broadcast(BroadcastRequest(messages=messages))
+        print(f"[broadcast] 推播完成（{total} 則）")
     except Exception as e:
         print(f"[broadcast] 推播失敗: {e}")
 
