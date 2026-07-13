@@ -154,7 +154,8 @@ def create_handler(line_bot_api, parser, api_client):
                 f"📊 資料庫統計\n\n"
                 f"📰 新聞文章：{stats['article_count']} 筆\n"
                 f"👤 使用者：{stats['user_count']} 人\n"
-                f"🕐 最新入庫：{stats['latest_crawl']}"
+                f"🕐 最新入庫：{stats['latest_crawl']}\n"
+                f"💾 容量：{stats['db_size_mb']} MB / 500 MB"
             )
             safe_reply(event, [TextMessage(text=reply_text)])
             return

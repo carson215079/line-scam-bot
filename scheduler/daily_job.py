@@ -1,7 +1,13 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from crawler.base import run_all_crawlers, fetch_article_text
 from ai.summarizer import summarize_article
-from db.database import save_article, article_exists, get_all_user_ids, get_latest_articles, cleanup_old_conversations
+from db.database import (
+    save_article, article_exists, get_all_user_ids, get_latest_articles,
+    cleanup_old_conversations, get_db_size_mb, trim_oldest_articles
+)
+
+# 免費方案容量 500 MB，達 80%（400 MB）時自動刪最舊的 20% 文章
+DB_SIZE_LIMIT_MB = 400
 from linebot.v3.messaging import TextMessage, BroadcastRequest
 
 def run_crawl_job():
@@ -61,12 +67,23 @@ def run_broadcast_job(line_bot_api):
         print(f"[broadcast] 推播失敗: {e}")
 
 def run_cleanup_job():
-    """每天凌晨 4:00 執行，清除 30 天前的舊對話紀錄。"""
+    """每天凌晨 4:00 執行：清除 30 天前舊對話 + 容量超標時刪最舊文章。"""
     try:
         deleted = cleanup_old_conversations(days=30)
         print(f"[cleanup] 清除 {deleted} 筆舊對話")
     except Exception as e:
-        print(f"[cleanup] 清理失敗: {e}")
+        print(f"[cleanup] 對話清理失敗: {e}")
+
+    # 容量保護：超過門檻才動作，每次只刪最舊的 20%
+    try:
+        size_mb = get_db_size_mb()
+        if size_mb >= DB_SIZE_LIMIT_MB:
+            trimmed = trim_oldest_articles(percent=20)
+            print(f"[cleanup] 容量 {size_mb}MB 超標，刪除最舊 {trimmed} 篇文章")
+        else:
+            print(f"[cleanup] 容量 {size_mb}MB，正常")
+    except Exception as e:
+        print(f"[cleanup] 容量檢查失敗: {e}")
 
 def get_scheduler(line_bot_api):
     scheduler = BackgroundScheduler(timezone="Asia/Taipei")

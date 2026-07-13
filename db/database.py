@@ -127,7 +127,8 @@ def get_db_stats() -> dict:
     return {
         "article_count": article_count,
         "user_count": user_count,
-        "latest_crawl": latest[0].strftime("%Y-%m-%d %H:%M") if latest else "無資料"
+        "latest_crawl": latest[0].strftime("%Y-%m-%d %H:%M") if latest else "無資料",
+        "db_size_mb": get_db_size_mb()
     }
 
 def save_message(line_user_id, role, content):
@@ -148,6 +149,29 @@ def count_recent_user_messages(line_user_id, hours: int = 24) -> int:
             (line_user_id, hours)
         ).fetchone()
     return row[0]
+
+def get_db_size_mb() -> float:
+    """取得目前資料庫佔用容量（MB）"""
+    with _get_conn() as conn:
+        row = conn.execute("SELECT pg_database_size(current_database())").fetchone()
+    return round(row[0] / 1024 / 1024, 1)
+
+def trim_oldest_articles(percent: int = 20) -> int:
+    """刪除最舊的 N% 文章（容量保護用），回傳刪除筆數。只動 articles，不碰 users。"""
+    with _get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+        to_delete = total * percent // 100
+        if to_delete == 0:
+            return 0
+        cur = conn.execute(
+            "DELETE FROM articles WHERE id IN ("
+            "  SELECT id FROM articles ORDER BY created_at ASC LIMIT %s"
+            ")",
+            (to_delete,)
+        )
+        deleted = cur.rowcount
+        conn.commit()
+    return deleted
 
 def cleanup_old_conversations(days: int = 30) -> int:
     """刪除超過 N 天的舊對話紀錄，回傳刪除筆數"""
