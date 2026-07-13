@@ -97,18 +97,22 @@ def get_all_articles_raw():
         ).fetchall()
     return [{"id": row[0], "title": row[1], "content": row[2], "url": row[3]} for row in rows]
 
-def update_article_title_summary(article_id: int, title: str, summary: str, url: str = None):
+def update_article_title_summary(article_id: int, title: str, summary: str, url: str = None, content: str = None):
+    """更新文章的標題與摘要；url / content 有傳入才一併更新"""
+    sets = ["title=%s", "summary=%s"]
+    params = [title, summary]
+    if url:
+        sets.append("url=%s")
+        params.append(url)
+    if content:
+        sets.append("content=%s")
+        params.append(content)
+    params.append(article_id)
     with _get_conn() as conn:
-        if url:
-            conn.execute(
-                "UPDATE articles SET title=%s, summary=%s, url=%s WHERE id=%s",
-                (title, summary, url, article_id)
-            )
-        else:
-            conn.execute(
-                "UPDATE articles SET title=%s, summary=%s WHERE id=%s",
-                (title, summary, article_id)
-            )
+        conn.execute(
+            f"UPDATE articles SET {', '.join(sets)} WHERE id=%s",
+            tuple(params)
+        )
         conn.commit()
 
 def get_db_stats() -> dict:
