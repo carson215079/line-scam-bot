@@ -64,6 +64,23 @@ def summarize_article(title: str, content: str) -> dict:
     except Exception:
         return {"title": title, "summary": content[:150] + "..." if len(content) > 150 else content}
 
+def extract_scam_keyword(text: str) -> str:
+    """從整句話萃取適合搜尋的詐騙關鍵詞（例：「請問什麼是投資詐騙」→「投資詐騙」）"""
+    try:
+        message = client.messages.create(
+            model=MODEL,
+            max_tokens=30,
+            system="你是關鍵字萃取工具。從用戶的句子中萃取最核心的詐騙類型關鍵詞（2-6 個字），只輸出關鍵詞本身，不要標點、不要說明。",
+            messages=[{"role": "user", "content": text}]
+        )
+        keyword = message.content[0].text.strip()
+        # 防止 AI 回覆過長或空白
+        if keyword and len(keyword) <= 10:
+            return keyword
+        return ""
+    except Exception:
+        return ""
+
 def analyze_image_for_scam(image_b64: str, media_type: str = "image/jpeg") -> tuple:
     """分析圖片是否涉及詐騙，回傳 (分析文字, 搜尋關鍵字)"""
     try:

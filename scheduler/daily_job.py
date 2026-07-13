@@ -1,7 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from crawler.base import run_all_crawlers
 from ai.summarizer import summarize_article
-from db.database import save_article, article_exists, get_all_user_ids, get_latest_articles
+from db.database import save_article, article_exists, get_all_user_ids, get_latest_articles, cleanup_old_conversations
 from linebot.v3.messaging import TextMessage, BroadcastRequest
 
 def run_crawl_job():
@@ -55,6 +55,14 @@ def run_broadcast_job(line_bot_api):
     except Exception as e:
         print(f"[broadcast] 推播失敗: {e}")
 
+def run_cleanup_job():
+    """每天凌晨 4:00 執行，清除 30 天前的舊對話紀錄。"""
+    try:
+        deleted = cleanup_old_conversations(days=30)
+        print(f"[cleanup] 清除 {deleted} 筆舊對話")
+    except Exception as e:
+        print(f"[cleanup] 清理失敗: {e}")
+
 def get_scheduler(line_bot_api):
     scheduler = BackgroundScheduler(timezone="Asia/Taipei")
 
@@ -73,6 +81,15 @@ def get_scheduler(line_bot_api):
         hour=9,
         minute=0,
         id="broadcast_job"
+    )
+
+    # 每天凌晨 4:00 清理舊對話
+    scheduler.add_job(
+        func=run_cleanup_job,
+        trigger="cron",
+        hour=4,
+        minute=0,
+        id="cleanup_job"
     )
 
     return scheduler

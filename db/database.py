@@ -134,6 +134,16 @@ def save_message(line_user_id, role, content):
         )
         conn.commit()
 
+def cleanup_old_conversations(days: int = 30) -> int:
+    """刪除超過 N 天的舊對話紀錄，回傳刪除筆數"""
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM conversations WHERE created_at < NOW() - INTERVAL '%s days'" % int(days)
+        )
+        deleted = cur.rowcount
+        conn.commit()
+    return deleted
+
 def get_conversation_history(line_user_id, limit=6):
     """取得最近 N 則對話（保持偶數，維持 user/assistant 交替）"""
     with _get_conn() as conn:

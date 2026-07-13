@@ -4,9 +4,9 @@ from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, ImageMessageContent,
     FollowEvent, GroupSource
 )
-from linebot.v3.messaging import TextMessage, ReplyMessageRequest, MessagingApiBlob
+from linebot.v3.messaging import TextMessage, ReplyMessageRequest, PushMessageRequest, MessagingApiBlob
 from db.database import save_user, search_articles, save_message, get_conversation_history, get_db_stats
-from ai.summarizer import answer_keyword_query, analyze_image_for_scam
+from ai.summarizer import answer_keyword_query, analyze_image_for_scam, extract_scam_keyword
 
 def is_bot_mentioned(message, bot_user_id: str = None) -> bool:
     """
@@ -101,6 +101,25 @@ def create_handler(line_bot_api, parser, api_client):
     except Exception:
         bot_user_id = None
 
+    def safe_reply(event, messages: list):
+        """優先用 reply（免費）；reply token 逾時失效則改用 push 補送"""
+        try:
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=messages
+            ))
+        except Exception as e:
+            print(f"[handler] reply 失敗，改用 push: {e}")
+            target_id = (
+                getattr(event.source, "group_id", None)
+                or getattr(event.source, "user_id", None)
+            )
+            if target_id:
+                line_bot_api.push_message(PushMessageRequest(
+                    to=target_id,
+                    messages=messages
+                ))
+
     def handle_text(event):
         is_group = isinstance(event.source, GroupSource)
         # 群組中未加好友的成員 user_id 會是 None
@@ -127,25 +146,29 @@ def create_handler(line_bot_api, parser, api_client):
                 f"👤 使用者：{stats['user_count']} 人\n"
                 f"🕐 最新入庫：{stats['latest_crawl']}"
             )
-            line_bot_api.reply_message(ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_text)]
-            ))
+            safe_reply(event, [TextMessage(text=reply_text)])
             return
 
         history = get_conversation_history(user_id, limit=6) if user_id else []
+
+        # 先用原句搜尋；落空時讓 AI 萃取關鍵詞再搜一次
+        # （例：「請問什麼是投資詐騙」→「投資詐騙」）
+        search_keyword = user_message
         articles = search_articles(user_message)
+        if not articles:
+            extracted = extract_scam_keyword(user_message)
+            if extracted and extracted != user_message:
+                search_keyword = extracted
+                articles = search_articles(extracted)
+
         reply_text = answer_keyword_query(user_message, articles, history=history)
 
         if user_id:
             save_message(user_id, "user", user_message)
             save_message(user_id, "assistant", reply_text)
 
-        messages = build_messages(reply_text, articles, keyword=user_message)
-        line_bot_api.reply_message(ReplyMessageRequest(
-            reply_token=event.reply_token,
-            messages=[TextMessage(text=m) for m in messages]
-        ))
+        messages = build_messages(reply_text, articles, keyword=search_keyword)
+        safe_reply(event, [TextMessage(text=m) for m in messages])
 
     def handle_image(event):
         # 群組圖片不處理，避免干擾群組聊天
@@ -171,10 +194,7 @@ def create_handler(line_bot_api, parser, api_client):
             save_message(user_id, "assistant", analysis)
 
         messages = build_messages(analysis, articles, keyword=keyword)
-        line_bot_api.reply_message(ReplyMessageRequest(
-            reply_token=event.reply_token,
-            messages=[TextMessage(text=m) for m in messages]
-        ))
+        safe_reply(event, [TextMessage(text=m) for m in messages])
 
     @bp.route("/callback", methods=["POST"])
     def callback():
