@@ -1,26 +1,54 @@
+import re
+import json
 import requests
 from abc import ABC, abstractmethod
 
+UA_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
 def resolve_url(url: str) -> str:
     """
-    嘗試跟隨轉址取得真實文章 URL。
-    若 Google News 防爬導致失敗，至少把 RSS 格式轉成可開啟的網頁格式。
+    將 Google News RSS 連結解碼為真實新聞網址。
+    Google 不使用 HTTP 轉址（回 200 的 JS 頁面），必須透過其內部
+    batchexecute API 解碼。解碼失敗時保留原始 RSS 連結
+    （瀏覽器開啟仍可 JS 跳轉，勿轉成 /articles/ 格式——該格式回 400）。
     """
+    if "news.google.com" not in url:
+        return url
+    m = re.search(r"/articles/([^?/]+)", url)
+    if not m:
+        return url
+    art_id = m.group(1)
+
     try:
-        r = requests.get(
-            url, allow_redirects=True, timeout=8,
-            headers={"User-Agent": "Mozilla/5.0"}, stream=True
+        # 步驟 1：抓文章頁，取得解碼所需的簽章與時間戳
+        page = requests.get(
+            f"https://news.google.com/rss/articles/{art_id}?oc=5",
+            headers=UA_HEADERS, timeout=10
         )
-        r.close()
-        final = r.url
+        sg = re.search(r'data-n-a-sg="([^"]+)"', page.text)
+        ts = re.search(r'data-n-a-ts="([^"]+)"', page.text)
+        if not (sg and ts):
+            return url
+
+        # 步驟 2：呼叫解碼 API 取得真實網址
+        payload = (
+            '["garturlreq",[["X","X",["X","X"],null,null,1,1,"TW:zh-Hant",'
+            'null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],'
+            f'"{art_id}",{ts.group(1)},"{sg.group(1)}"]'
+        )
+        resp = requests.post(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+            data={"f.req": json.dumps([[["Fbv4je", payload]]])},
+            headers={**UA_HEADERS, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            timeout=10
+        )
+        # 回應中的引號是跳脫格式（\"garturlres\"），比對時不含引號
+        m2 = re.search(r'garturlres.*?(https?://[^\\"]+)', resp.text)
+        if m2:
+            return m2.group(1)
+        return url
     except Exception:
-        final = url
-
-    # Google News RSS URL → 轉成可開啟的網頁版 URL
-    if "news.google.com/rss/articles/" in final:
-        final = final.replace("/rss/articles/", "/articles/").split("?")[0]
-
-    return final
+        return url
 
 def fetch_article_text(url: str, max_chars: int = 2000) -> str:
     """
@@ -32,12 +60,20 @@ def fetch_article_text(url: str, max_chars: int = 2000) -> str:
         return ""
     try:
         from bs4 import BeautifulSoup
-        resp = requests.get(
-            url, timeout=8,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        )
+        resp = requests.get(url, timeout=8, headers=UA_HEADERS, stream=True)
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        # 只處理 HTML；非網頁內容（PDF、圖片等）直接放棄
+        if "text/html" not in resp.headers.get("Content-Type", "text/html"):
+            return ""
+        # 最多讀 2 MB，防止惡意巨型回應吃光記憶體
+        raw = b""
+        for chunk in resp.iter_content(chunk_size=65536):
+            raw += chunk
+            if len(raw) > 2 * 1024 * 1024:
+                break
+        resp.close()
+        html = raw.decode(resp.encoding or "utf-8", errors="ignore")
+        soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
             tag.decompose()
         paragraphs = [p.get_text(strip=True) for p in soup.find_all("p")]
