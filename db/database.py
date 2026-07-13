@@ -40,6 +40,12 @@ def init_db():
         """)
         conn.commit()
 
+def article_exists(url) -> bool:
+    """檢查 URL 是否已存在（爬蟲先查再呼叫 AI，避免重複文章浪費 API）"""
+    with _get_conn() as conn:
+        row = conn.execute("SELECT 1 FROM articles WHERE url = %s", (url,)).fetchone()
+        return row is not None
+
 def save_article(title, content, summary, url, source, published_at):
     try:
         with _get_conn() as conn:
@@ -109,8 +115,10 @@ def get_db_stats() -> dict:
     with _get_conn() as conn:
         article_count = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        # created_at 以 UTC 儲存，顯示時轉為台灣時間
         latest = conn.execute(
-            "SELECT created_at FROM articles ORDER BY created_at DESC LIMIT 1"
+            "SELECT (created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Taipei' "
+            "FROM articles ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     return {
         "article_count": article_count,

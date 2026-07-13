@@ -8,23 +8,24 @@ from linebot.v3.messaging import TextMessage, ReplyMessageRequest, MessagingApiB
 from db.database import save_user, search_articles, save_message, get_conversation_history, get_db_stats
 from ai.summarizer import answer_keyword_query, analyze_image_for_scam
 
-def is_bot_mentioned(message) -> bool:
+def is_bot_mentioned(message, bot_user_id: str = None) -> bool:
     """
     檢查訊息是否有 @TAG 到機器人。
-    優先用 is_self=True；若 SDK 未回傳 is_self（None），
-    只要有任何 mentionee 且訊息含 @ 就視為觸發。
+    判斷順序：is_self=True → mentionee.user_id 比對 → fallback（無法判斷時放行）
     """
     mention = getattr(message, "mention", None)
     if not mention:
         return False
     mentionees = getattr(mention, "mentionees", None) or []
-    if not mentionees:
-        return False
     for m in mentionees:
-        is_self = getattr(m, "is_self", None)
-        if is_self is True:
+        if getattr(m, "is_self", None) is True:
             return True
-        if is_self is None and "@" in getattr(message, "text", ""):
+        # 比對機器人自己的 user_id，避免 tag 別人也觸發
+        m_user_id = getattr(m, "user_id", None)
+        if bot_user_id and m_user_id == bot_user_id:
+            return True
+        # SDK 無法判斷（is_self=None 且拿不到比對資訊）時放行
+        if getattr(m, "is_self", None) is None and not bot_user_id and not m_user_id:
             return True
     return False
 
@@ -94,6 +95,87 @@ def create_handler(line_bot_api, parser, api_client):
     blob_api = MessagingApiBlob(api_client)
     bp = Blueprint("handler", __name__)
 
+    # 取得機器人自己的 user_id，供群組 @TAG 比對
+    try:
+        bot_user_id = line_bot_api.get_bot_info().user_id
+    except Exception:
+        bot_user_id = None
+
+    def handle_text(event):
+        is_group = isinstance(event.source, GroupSource)
+        # 群組中未加好友的成員 user_id 會是 None
+        user_id = getattr(event.source, "user_id", None)
+        if user_id:
+            save_user(user_id)
+
+        # 群組模式：只有 @TAG 才回應
+        if is_group:
+            if not is_bot_mentioned(event.message, bot_user_id):
+                return
+            user_message = strip_mentions(event.message)
+            if not user_message:
+                return
+        else:
+            user_message = event.message.text.strip()
+
+        # 統計指令
+        if user_message == "統計":
+            stats = get_db_stats()
+            reply_text = (
+                f"📊 資料庫統計\n\n"
+                f"📰 新聞文章：{stats['article_count']} 筆\n"
+                f"👤 使用者：{stats['user_count']} 人\n"
+                f"🕐 最新入庫：{stats['latest_crawl']}"
+            )
+            line_bot_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=reply_text)]
+            ))
+            return
+
+        history = get_conversation_history(user_id, limit=6) if user_id else []
+        articles = search_articles(user_message)
+        reply_text = answer_keyword_query(user_message, articles, history=history)
+
+        if user_id:
+            save_message(user_id, "user", user_message)
+            save_message(user_id, "assistant", reply_text)
+
+        messages = build_messages(reply_text, articles, keyword=user_message)
+        line_bot_api.reply_message(ReplyMessageRequest(
+            reply_token=event.reply_token,
+            messages=[TextMessage(text=m) for m in messages]
+        ))
+
+    def handle_image(event):
+        # 群組圖片不處理，避免干擾群組聊天
+        if isinstance(event.source, GroupSource):
+            return
+
+        user_id = getattr(event.source, "user_id", None)
+        if user_id:
+            save_user(user_id)
+
+        try:
+            content = blob_api.get_message_content(event.message.id)
+            image_b64 = base64.standard_b64encode(content).decode("utf-8")
+            analysis, keyword = analyze_image_for_scam(image_b64)
+        except Exception:
+            analysis = "抱歉，圖片讀取失敗，請重新傳送或改用文字描述。"
+            keyword = "詐騙"
+
+        articles = search_articles(keyword)
+
+        if user_id:
+            save_message(user_id, "user", "[圖片]")
+            save_message(user_id, "assistant", analysis)
+
+        messages = build_messages(analysis, articles, keyword=keyword)
+        line_bot_api.reply_message(ReplyMessageRequest(
+            reply_token=event.reply_token,
+            messages=[TextMessage(text=m) for m in messages]
+        ))
+
     @bp.route("/callback", methods=["POST"])
     def callback():
         signature = request.headers.get("X-Line-Signature", "")
@@ -104,78 +186,16 @@ def create_handler(line_bot_api, parser, api_client):
             abort(400)
 
         for event in events:
-            if isinstance(event, FollowEvent):
-                save_user(event.source.user_id)
-
-            elif isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
-                is_group = isinstance(event.source, GroupSource)
-                user_id = event.source.user_id
-                save_user(user_id)
-
-                # 群組模式：只有 @TAG 才回應
-                if is_group:
-                    if not is_bot_mentioned(event.message):
-                        continue
-                    user_message = strip_mentions(event.message)
-                    if not user_message:
-                        continue
-                else:
-                    user_message = event.message.text.strip()
-
-                # 統計指令
-                if user_message == "統計":
-                    stats = get_db_stats()
-                    reply_text = (
-                        f"📊 資料庫統計\n\n"
-                        f"📰 新聞文章：{stats['article_count']} 筆\n"
-                        f"👤 使用者：{stats['user_count']} 人\n"
-                        f"🕐 最新爬取：{stats['latest_crawl']}"
-                    )
-                    line_bot_api.reply_message(ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=reply_text)]
-                    ))
-                    continue
-
-                history = get_conversation_history(user_id, limit=6)
-                articles = search_articles(user_message)
-                reply_text = answer_keyword_query(user_message, articles, history=history)
-
-                save_message(user_id, "user", user_message)
-                save_message(user_id, "assistant", reply_text)
-
-                messages = build_messages(reply_text, articles, keyword=user_message)
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=m) for m in messages]
-                ))
-
-            elif isinstance(event, MessageEvent) and isinstance(event.message, ImageMessageContent):
-                # 群組圖片不處理，避免干擾群組聊天
-                if isinstance(event.source, GroupSource):
-                    continue
-
-                user_id = event.source.user_id
-                save_user(user_id)
-
-                try:
-                    content = blob_api.get_message_content(event.message.id)
-                    image_b64 = base64.standard_b64encode(content).decode("utf-8")
-                    analysis, keyword = analyze_image_for_scam(image_b64)
-                except Exception:
-                    analysis = "抱歉，圖片讀取失敗，請重新傳送或改用文字描述。"
-                    keyword = "詐騙"
-
-                articles = search_articles(keyword)
-
-                save_message(user_id, "user", "[圖片]")
-                save_message(user_id, "assistant", analysis)
-
-                messages = build_messages(analysis, articles, keyword=keyword)
-                line_bot_api.reply_message(ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=m) for m in messages]
-                ))
+            # 單一事件失敗不影響其他事件處理
+            try:
+                if isinstance(event, FollowEvent):
+                    save_user(event.source.user_id)
+                elif isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
+                    handle_text(event)
+                elif isinstance(event, MessageEvent) and isinstance(event.message, ImageMessageContent):
+                    handle_image(event)
+            except Exception as e:
+                print(f"[handler] 處理事件失敗: {e}")
 
         return "OK"
 
