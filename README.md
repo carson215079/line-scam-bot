@@ -152,3 +152,19 @@ python main.py
 ```
 本機修改 → git push → GitHub → Render 自動部署 → 上線
 ```
+
+---
+
+## 專案花費
+
+除 Anthropic API 外，所有服務（Render / Supabase / cron-job.org / LINE / GitHub）皆為免費方案。
+
+| 階段 | 費用 |
+|---|---|
+| **開發（一次性）** | 約 USD $5（Anthropic API 儲值）|
+| **維護（每月）** | 5 人內約 TWD 3–82 元（僅 Anthropic API 依用量計費）|
+
+- Anthropic 為預付制，餘額用完即停，不會自動扣款（未開 Auto-recharge 時）
+- 已設每人每日 30 則上限，防止 API 額度被濫用
+
+> 詳細分項與各用戶規模估算見 [`專案花費.txt`](專案花費.txt)
