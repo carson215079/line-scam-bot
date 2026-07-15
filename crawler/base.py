@@ -23,11 +23,12 @@ def resolve_url(url: str) -> str:
         # 步驟 1：抓文章頁，取得解碼所需的簽章與時間戳
         page = requests.get(
             f"https://news.google.com/rss/articles/{art_id}?oc=5",
-            headers=UA_HEADERS, timeout=10
+            headers=UA_HEADERS, timeout=15
         )
         sg = re.search(r'data-n-a-sg="([^"]+)"', page.text)
         ts = re.search(r'data-n-a-ts="([^"]+)"', page.text)
         if not (sg and ts):
+            print(f"[resolve_url] 取不到簽章（HTTP {page.status_code}，頁面 {len(page.text)} 字），保留原連結")
             return url
 
         # 步驟 2：呼叫解碼 API 取得真實網址
@@ -40,14 +41,16 @@ def resolve_url(url: str) -> str:
             "https://news.google.com/_/DotsSplashUi/data/batchexecute",
             data={"f.req": json.dumps([[["Fbv4je", payload]]])},
             headers={**UA_HEADERS, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
-            timeout=10
+            timeout=15
         )
         # 回應中的引號是跳脫格式（\"garturlres\"），比對時不含引號
         m2 = re.search(r'garturlres.*?(https?://[^\\"]+)', resp.text)
         if m2:
             return m2.group(1)
+        print(f"[resolve_url] 解碼 API 無有效回應（HTTP {resp.status_code}），保留原連結")
         return url
-    except Exception:
+    except Exception as e:
+        print(f"[resolve_url] 解碼例外：{type(e).__name__} {e}，保留原連結")
         return url
 
 def fetch_article_text(url: str, max_chars: int = 2000) -> str:
