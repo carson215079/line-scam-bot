@@ -20,10 +20,14 @@ def resolve_url(url: str) -> str:
     art_id = m.group(1)
 
     try:
+        # 用 Session 讓步驟 1 取得的 cookie 帶到步驟 2（部分環境解碼需要 session cookie）
+        sess = requests.Session()
+        sess.headers.update(UA_HEADERS)
+
         # 步驟 1：抓文章頁，取得解碼所需的簽章與時間戳
-        page = requests.get(
+        page = sess.get(
             f"https://news.google.com/rss/articles/{art_id}?oc=5",
-            headers=UA_HEADERS, timeout=15
+            timeout=15
         )
         sg = re.search(r'data-n-a-sg="([^"]+)"', page.text)
         ts = re.search(r'data-n-a-ts="([^"]+)"', page.text)
@@ -37,10 +41,10 @@ def resolve_url(url: str) -> str:
             'null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],'
             f'"{art_id}",{ts.group(1)},"{sg.group(1)}"]'
         )
-        resp = requests.post(
+        resp = sess.post(
             "https://news.google.com/_/DotsSplashUi/data/batchexecute",
             data={"f.req": json.dumps([[["Fbv4je", payload]]])},
-            headers={**UA_HEADERS, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
             timeout=15
         )
         # 回應中的引號是跳脫格式（\"garturlres\"），比對時不含引號
