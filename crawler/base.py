@@ -1,9 +1,23 @@
 import re
 import json
 import requests
+import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 
 UA_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+# 詐騙相關關鍵字（標題或摘要含任一即收錄）
+SCAM_KEYWORDS = [
+    "詐騙", "詐欺", "詐", "騙", "車手", "165", "盜刷", "假冒",
+    "釣魚", "個資", "假投資", "假交友", "解除分期", "洗錢", "人頭帳戶",
+]
+
+# 台灣媒體 RSS 來源（提供真實文章網址，免解碼）
+TAIWAN_FEEDS = [
+    ("中央社", "https://feeds.feedburner.com/rsscna/social"),
+    ("自由時報", "https://news.ltn.com.tw/rss/society.xml"),
+    ("ETtoday", "https://feeds.feedburner.com/ettoday/news"),
+]
 
 def resolve_url(url: str) -> str:
     """
@@ -94,14 +108,43 @@ class BaseCrawler(ABC):
     def fetch(self) -> list:
         pass
 
-def run_all_crawlers() -> list:
-    from crawler.source_165 import Crawler165
-    from crawler.source_news import NewsCrawler
+class RssKeywordCrawler(BaseCrawler):
+    """通用 RSS 爬蟲：抓取媒體 RSS，僅收錄標題/摘要含詐騙關鍵字的文章。"""
+    def __init__(self, name: str, feed_url: str):
+        self.name = name
+        self.feed_url = feed_url
 
-    results = []
-    for crawler in [Crawler165(), NewsCrawler()]:
+    def fetch(self) -> list:
+        articles = []
         try:
-            results.extend(crawler.fetch())
+            resp = requests.get(self.feed_url, timeout=10, headers=UA_HEADERS)
+            root = ET.fromstring(resp.content)
+            for item in root.findall(".//item"):
+                title = (item.findtext("title") or "").strip()
+                url = (item.findtext("link") or "").strip()
+                pub_date = (item.findtext("pubDate") or "").strip()
+                desc = item.findtext("description") or ""
+                if not title or not url:
+                    continue
+                # 關鍵字過濾：標題或摘要含任一詐騙相關詞才收
+                if not any(k in title or k in desc for k in SCAM_KEYWORDS):
+                    continue
+                articles.append({
+                    "title": title,
+                    "content": title,
+                    "url": url,
+                    "source": self.name,
+                    "published_at": pub_date,
+                })
         except Exception as e:
-            print(f"[crawler] {crawler.__class__.__name__} 爬取失敗: {e}")
+            print(f"[{self.name}] 爬取失敗: {e}")
+        return articles
+
+def run_all_crawlers() -> list:
+    results = []
+    for name, feed_url in TAIWAN_FEEDS:
+        try:
+            results.extend(RssKeywordCrawler(name, feed_url).fetch())
+        except Exception as e:
+            print(f"[crawler] {name} 爬取失敗: {e}")
     return results

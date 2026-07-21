@@ -30,20 +30,20 @@ Linebot/
 │   └── database.py              # 資料庫操作
 │
 ├── crawler/
-│   ├── base.py                  # 爬蟲基底 + resolve_url
-│   ├── source_165.py            # Google News RSS（165 反詐騙）
-│   └── source_news.py           # Google News RSS（詐騙台灣）
+│   └── base.py                  # 台灣媒體 RSS 爬蟲（關鍵字過濾）+ 內文抓取
 │
 ├── scheduler/
-│   └── daily_job.py             # 定時爬蟲 + 每日推播
+│   └── daily_job.py             # 定時爬蟲 + 每日推播（去重）+ 每日清理
 │
 └── scripts/
-    └── remigrate_articles.py    # 一次性舊資料更新腳本
+    ├── remigrate_articles.py    # 舊文章重整（一次性）
+    ├── fix_urls.py              # 批次解碼 Google 連結（歷史遺留資料用）
+    └── migrate_to_supabase.py   # 資料庫遷移（一次性）
 
 
 三、資料庫 Tables
 ------------------
-articles        爬蟲文章（標題、摘要、URL、來源）
+articles        爬蟲文章（標題、摘要、URL、來源、broadcasted_at 推播去重）
 users           LINE 用戶 ID
 conversations   對話歷史（支援多輪對話）
 
@@ -51,8 +51,9 @@ conversations   對話歷史（支援多輪對話）
 四、核心流程
 -------------
 【爬蟲（每 3 小時）】
-Google News RSS → 解析文章 → resolve_url 取得真實連結
-→ AI 生成標題 + 摘要 → 存入 DB（URL 唯一，自動擋重複）
+台灣媒體 RSS（中央社/自由/ETtoday）→ 關鍵字過濾詐騙新聞
+→ 抓取內文 → AI 讀全文生成標題 + 摘要
+→ 存入 DB（URL 唯一擋重複；來源即真實網址，免解碼）
 
 【用戶傳文字】
 LINE Webhook → 搜尋 DB → AI 整理回覆
@@ -67,8 +68,8 @@ LINE Webhook → 下載圖片 → Claude Vision 分析
 圖片忽略（避免干擾群組聊天）
 
 【每日推播（早上 9:00）】
-取最新 5 篇文章 → 廣播給所有用戶
-格式：標題 + AI 摘要 + 原文連結
+取最新 5 篇「未推播過」文章 → 廣播給所有用戶 → 標記為已推播
+格式：標題 + AI 摘要 + 原文連結（每篇一則訊息，不重複推送）
 
 
 五、環境變數（Render 設定）

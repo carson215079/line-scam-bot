@@ -2,7 +2,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from crawler.base import run_all_crawlers, fetch_article_text
 from ai.summarizer import summarize_article
 from db.database import (
-    save_article, article_exists, get_all_user_ids, get_latest_articles,
+    save_article, article_exists, get_all_user_ids,
+    get_articles_for_broadcast, mark_articles_broadcasted,
     cleanup_old_conversations, get_db_size_mb, trim_oldest_articles
 )
 
@@ -43,9 +44,10 @@ def run_broadcast_job(line_bot_api):
         print("[broadcast] 無用戶，跳過推播")
         return
 
-    latest = get_latest_articles(limit=5)
+    # 只取「尚未推播過」的最新文章，避免每天重複推同幾篇
+    latest = get_articles_for_broadcast(limit=5)
     if not latest:
-        print("[broadcast] 無文章可推播")
+        print("[broadcast] 無新文章可推播（今日略過）")
         return
 
     # 每篇文章一則訊息，好讀且預覽卡片各歸各（LINE 單次上限 5 則）
@@ -62,6 +64,8 @@ def run_broadcast_job(line_bot_api):
 
     try:
         line_bot_api.broadcast(BroadcastRequest(messages=messages))
+        # 推播成功才標記已推，避免發送失敗卻被記為已推導致漏推
+        mark_articles_broadcasted([a["id"] for a in latest])
         print(f"[broadcast] 推播完成（{total} 則）")
     except Exception as e:
         print(f"[broadcast] 推播失敗: {e}")

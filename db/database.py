@@ -38,6 +38,8 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
+        # 推播去重欄位：記錄文章是否已被每日推播過（NULL=未推播）
+        conn.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS broadcasted_at TIMESTAMP")
         conn.commit()
 
 def article_exists(url) -> bool:
@@ -81,29 +83,35 @@ def save_user(line_user_id):
         conn.commit()
 
 def get_latest_articles(limit=3):
-    """
-    取最新文章供推播用。優先挑選「已解碼」的文章（連結非 Google 長網址，
-    手機可正常點擊）；不足時才補上未解碼的，確保推播不會開天窗。
-    """
     with _get_conn() as conn:
-        cols = ["id", "title", "summary", "url", "source", "published_at"]
-        select = "SELECT id, title, summary, url, source, published_at FROM articles"
-        # 先取已解碼的
         rows = conn.execute(
-            f"{select} WHERE url NOT LIKE '%%news.google.com%%' "
-            "ORDER BY created_at DESC LIMIT %s",
+            "SELECT id, title, summary, url, source, published_at FROM articles ORDER BY created_at DESC LIMIT %s",
             (limit,)
         ).fetchall()
-        # 不足時，用未解碼的補滿
-        if len(rows) < limit:
-            got_ids = tuple(r[0] for r in rows) or (0,)
-            extra = conn.execute(
-                f"{select} WHERE id NOT IN %s "
-                "ORDER BY created_at DESC LIMIT %s",
-                (got_ids, limit - len(rows))
-            ).fetchall()
-            rows = list(rows) + list(extra)
+        cols = ["id", "title", "summary", "url", "source", "published_at"]
         return [dict(zip(cols, row)) for row in rows]
+
+def get_articles_for_broadcast(limit=5):
+    """取尚未推播過的最新文章（broadcasted_at IS NULL），供每日推播去重用。"""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, title, summary, url, source, published_at FROM articles "
+            "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT %s",
+            (limit,)
+        ).fetchall()
+        cols = ["id", "title", "summary", "url", "source", "published_at"]
+        return [dict(zip(cols, row)) for row in rows]
+
+def mark_articles_broadcasted(article_ids: list):
+    """將指定文章標記為已推播。"""
+    if not article_ids:
+        return
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE articles SET broadcasted_at = NOW() WHERE id = ANY(%s)",
+            (list(article_ids),)
+        )
+        conn.commit()
 
 def get_all_articles_raw():
     """取得所有文章的 id、title、content、url（供重新整理用）"""
