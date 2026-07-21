@@ -3,3 +3,7 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# 品牌素材（本機保留，不進版控）
+Photo.png
+Photo2.png
