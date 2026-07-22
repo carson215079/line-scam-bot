@@ -15,6 +15,17 @@ def test_is_scam_article_keeps_real_scam(title):
     assert is_scam_article(title) is True
 
 @pytest.mark.parametrize("title", [
+    # 回歸測試：防詐宣導類新聞曾被排除詞「貪瀆」誤殺，且漏收「防詐」一詞
+    "屏東縣警局長率隊啟動反詐宣導防詐反貪瀆",
+    "台灣導入GSMA國際標準 電信偵測預防詐騙",
+    "嘉義縣警察局長宣導防詐 提醒民眾勿上當",
+    "台灣旅遊被騙900萬 專家警示免費最貴",
+])
+def test_is_scam_article_keeps_prevention_news(title):
+    """防詐宣導、民眾受騙類新聞須保留，不得被排除詞誤殺"""
+    assert is_scam_article(title) is True
+
+@pytest.mark.parametrize("title", [
     # 貪瀆虛報類：非民眾受害的詐騙
     "台中議員涉詐領助理費 移送法辦",
     "診所詐領健保費 遭判刑",
