@@ -3,7 +3,41 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from crawler.base import BaseCrawler, RssKeywordCrawler, run_all_crawlers
+from crawler.base import BaseCrawler, RssKeywordCrawler, run_all_crawlers, is_scam_article
+
+@pytest.mark.parametrize("title", [
+    "新北人事處遭LINE帳號盜用 詐騙親友借錢",
+    "假檢警詐騙老婦 車手落網",
+    "解除分期付款詐騙 民眾遭騙60萬",
+    "投資詐騙損失184萬 25人被害",
+])
+def test_is_scam_article_keeps_real_scam(title):
+    assert is_scam_article(title) is True
+
+@pytest.mark.parametrize("title", [
+    # 貪瀆虛報類：非民眾受害的詐騙
+    "台中議員涉詐領助理費 移送法辦",
+    "診所詐領健保費 遭判刑",
+    # 完全無關（曾因 description 圖檔名含 165 而誤收）
+    "台軍工廠RDX火藥無法國內自製 兵工署負責生產",
+    "通緝犯拒捕撞警 強制猥褻遭起訴",
+])
+def test_is_scam_article_excludes_non_scam(title):
+    assert is_scam_article(title) is False
+
+def test_filter_ignores_description_to_avoid_false_positive(mocker):
+    """description 內的圖片網址（如 c8838165.jpg 含 165）不得造成誤收"""
+    rss = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel><item>
+      <title>RDX火藥無法國內自製</title>
+      <link>https://www.ettoday.net/news/1.htm</link>
+      <description>&lt;img src="https://cdn2.ettoday.net/images/8838/c8838165.jpg" /&gt;軍工新聞</description>
+    </item></channel></rss>"""
+    mock_response = mocker.MagicMock()
+    mock_response.content = rss.encode("utf-8")
+    mocker.patch("requests.get", return_value=mock_response)
+    results = RssKeywordCrawler("測試", "http://example.com/rss").fetch()
+    assert results == []
 
 RSS_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>

@@ -6,11 +6,25 @@ from abc import ABC, abstractmethod
 
 UA_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-# 詐騙相關關鍵字（標題或摘要含任一即收錄）
+# 詐騙關鍵字（僅比對「標題」，且用完整詞彙）
+# 註：不可使用「詐」「騙」單字或「165」裸數字——
+#     「詐」會誤中「詐領」(貪瀆非詐騙)、「165」會誤中圖檔名如 c8838165.jpg
 SCAM_KEYWORDS = [
-    "詐騙", "詐欺", "詐", "騙", "車手", "165", "盜刷", "假冒",
-    "釣魚", "個資", "假投資", "假交友", "解除分期", "洗錢", "人頭帳戶",
+    "詐騙", "詐欺", "詐團", "詐財", "反詐", "車手",
+    "假冒", "假客服", "假投資", "假交友", "假檢警", "釣魚簡訊", "釣魚網站",
+    "解除分期", "人頭帳戶", "盜刷", "網購詐", "投資詐", "感情詐", "電信詐",
 ]
+
+# 排除詞：非「民眾被騙」類型的案件（公務貪瀆、虛報請領等）
+EXCLUDE_KEYWORDS = [
+    "詐領", "助理費", "貪污", "貪瀆", "侵占", "浮報", "溢領",
+]
+
+def is_scam_article(title: str) -> bool:
+    """判斷標題是否為民眾受害的詐騙新聞（排除貪瀆虛報類）"""
+    if any(x in title for x in EXCLUDE_KEYWORDS):
+        return False
+    return any(k in title for k in SCAM_KEYWORDS)
 
 # 台灣媒體 RSS 來源（提供真實文章網址，免解碼）
 TAIWAN_FEEDS = [
@@ -123,11 +137,10 @@ class RssKeywordCrawler(BaseCrawler):
                 title = (item.findtext("title") or "").strip()
                 url = (item.findtext("link") or "").strip()
                 pub_date = (item.findtext("pubDate") or "").strip()
-                desc = item.findtext("description") or ""
                 if not title or not url:
                     continue
-                # 關鍵字過濾：標題或摘要含任一詐騙相關詞才收
-                if not any(k in title or k in desc for k in SCAM_KEYWORDS):
+                # 僅比對標題：description 含 HTML 與圖片網址，會造成誤判
+                if not is_scam_article(title):
                     continue
                 articles.append({
                     "title": title,
