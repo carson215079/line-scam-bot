@@ -5,8 +5,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db.database import (
     init_db, save_article, search_articles, get_all_user_ids,
-    save_user, get_latest_articles, _get_conn
+    save_user, get_latest_articles, title_similarity, _get_conn
 )
+
+def test_title_similarity_same_event_high():
+    """同一事件、用詞雷同的標題應高相似度"""
+    s = title_similarity("台南地檢投資詐騙起訴保全", "台南地檢投資詐騙起訴保全首腦")
+    assert s >= 0.45
+
+def test_title_similarity_different_news_low():
+    """不同案件的標題應低相似度，不會被誤判為重複"""
+    s = title_similarity("假冒工程詐騙判刑", "70歲婦人網戀詐騙被騙")
+    assert s < 0.45
 
 # 測試資料一律使用此網址前綴，方便測試後清除，避免污染正式資料庫
 TEST_URL_PREFIX = "https://pytest.example/"

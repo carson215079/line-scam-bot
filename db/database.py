@@ -48,6 +48,12 @@ def article_exists(url) -> bool:
         row = conn.execute("SELECT 1 FROM articles WHERE url = %s", (url,)).fetchone()
         return row is not None
 
+def title_exists(title) -> bool:
+    """檢查標題是否已存在（擋掉不同 URL、同標題的重複新聞）"""
+    with _get_conn() as conn:
+        row = conn.execute("SELECT 1 FROM articles WHERE title = %s", (title,)).fetchone()
+        return row is not None
+
 def save_article(title, content, summary, url, source, published_at):
     try:
         with _get_conn() as conn:
@@ -91,16 +97,48 @@ def get_latest_articles(limit=3):
         cols = ["id", "title", "summary", "url", "source", "published_at"]
         return [dict(zip(cols, row)) for row in rows]
 
+def _title_bigrams(s: str) -> set:
+    s = "".join(ch for ch in s if not ch.isspace())
+    return {s[i:i+2] for i in range(len(s) - 1)}
+
+def title_similarity(a: str, b: str) -> float:
+    """標題相似度（字元 bigram Jaccard）。實測：不同新聞 <0.2、同案雷同 ~0.5。"""
+    A, B = _title_bigrams(a), _title_bigrams(b)
+    if not A or not B:
+        return 0.0
+    return len(A & B) / len(A | B)
+
+SIMILAR_THRESHOLD = 0.45  # 高於此值視為同一則新聞
+
 def get_articles_for_broadcast(limit=5):
-    """取尚未推播過的最新文章（broadcasted_at IS NULL），供每日推播去重用。"""
+    """
+    取尚未推播的最新文章，並過濾掉「內容雷同」的重複新聞：
+    - 跨天：不與最近 7 天已推播的標題雷同
+    - 同批：本次選出的 5 則彼此不雷同
+    """
+    cols = ["id", "title", "summary", "url", "source", "published_at"]
     with _get_conn() as conn:
-        rows = conn.execute(
+        # 撈較多候選（未推播，最新在前），再逐一挑選非重複者
+        candidates = conn.execute(
             "SELECT id, title, summary, url, source, published_at FROM articles "
-            "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT %s",
-            (limit,)
+            "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT 30"
         ).fetchall()
-        cols = ["id", "title", "summary", "url", "source", "published_at"]
-        return [dict(zip(cols, row)) for row in rows]
+        # 最近 7 天已推播過的標題（避免跨天重複同事件）
+        recent = conn.execute(
+            "SELECT title FROM articles WHERE broadcasted_at > NOW() - INTERVAL '7 days'"
+        ).fetchall()
+
+    seen_titles = [r[0] for r in recent]
+    picked = []
+    for row in candidates:
+        title = row[1]
+        if any(title_similarity(title, s) >= SIMILAR_THRESHOLD for s in seen_titles):
+            continue  # 與近期或本批已選的雷同，跳過
+        picked.append(dict(zip(cols, row)))
+        seen_titles.append(title)
+        if len(picked) >= limit:
+            break
+    return picked
 
 def mark_articles_broadcasted(article_ids: list):
     """將指定文章標記為已推播。"""

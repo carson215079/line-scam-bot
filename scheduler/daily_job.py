@@ -2,7 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from crawler.base import run_all_crawlers, fetch_article_text
 from ai.summarizer import summarize_article
 from db.database import (
-    save_article, article_exists, get_all_user_ids,
+    save_article, article_exists, title_exists, get_all_user_ids,
     get_articles_for_broadcast, mark_articles_broadcasted,
     cleanup_old_conversations, get_db_size_mb, trim_oldest_articles
 )
@@ -17,8 +17,8 @@ def run_crawl_job():
     articles = run_all_crawlers()
     new_count = 0
     for article in articles:
-        # 已存在的文章直接跳過，避免重複呼叫 AI 浪費 API 額度
-        if article_exists(article["url"]):
+        # 已存在（同 URL 或同原始標題）直接跳過，省 API 又防重複累積
+        if article_exists(article["url"]) or title_exists(article["title"]):
             continue
         # 抓取文章內文讓 AI 讀全文摘要；抓不到就 fallback 用標題
         content = fetch_article_text(article["url"]) or article["content"]
