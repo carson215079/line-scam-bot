@@ -88,14 +88,14 @@ def save_user(line_user_id):
         )
         conn.commit()
 
-def get_latest_articles(limit=3):
+def has_broadcast_within(hours: int = 12) -> bool:
+    """最近 N 小時內是否已推播過（防 APScheduler 與 cron-job 同時觸發造成重複推播）"""
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, title, summary, url, source, published_at FROM articles ORDER BY created_at DESC LIMIT %s",
-            (limit,)
-        ).fetchall()
-        cols = ["id", "title", "summary", "url", "source", "published_at"]
-        return [dict(zip(cols, row)) for row in rows]
+        row = conn.execute(
+            "SELECT 1 FROM articles WHERE broadcasted_at > NOW() - make_interval(hours => %s) LIMIT 1",
+            (hours,)
+        ).fetchone()
+        return row is not None
 
 def _title_bigrams(s: str) -> set:
     s = "".join(ch for ch in s if not ch.isspace())
@@ -246,7 +246,8 @@ def cleanup_old_conversations(days: int = 30) -> int:
     return deleted
 
 def get_conversation_history(line_user_id, limit=6):
-    """取得最近 N 則對話（保持偶數，維持 user/assistant 交替）"""
+    """取得最近 N 則對話（時間正序）。Anthropic API 要求首則為 user，
+    故去掉開頭多餘的 assistant 訊息，避免 API 報錯。"""
     with _get_conn() as conn:
         rows = conn.execute(
             "SELECT role, content FROM conversations WHERE line_user_id = %s ORDER BY created_at DESC LIMIT %s",
@@ -254,4 +255,7 @@ def get_conversation_history(line_user_id, limit=6):
         ).fetchall()
     # 反轉成時間正序
     history = [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+    # 去掉開頭的 assistant（首則必須是 user）
+    while history and history[0]["role"] != "user":
+        history.pop(0)
     return history

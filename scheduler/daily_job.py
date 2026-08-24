@@ -1,15 +1,15 @@
 from apscheduler.schedulers.background import BackgroundScheduler
+from linebot.v3.messaging import TextMessage, BroadcastRequest
 from crawler.base import run_all_crawlers, fetch_article_text
 from ai.summarizer import summarize_article
 from db.database import (
     save_article, article_exists, title_exists, get_all_user_ids,
-    get_articles_for_broadcast, mark_articles_broadcasted,
+    get_articles_for_broadcast, mark_articles_broadcasted, has_broadcast_within,
     cleanup_old_conversations, get_db_size_mb, trim_oldest_articles
 )
 
 # 免費方案容量 500 MB，達 80%（400 MB）時自動刪最舊的 20% 文章
 DB_SIZE_LIMIT_MB = 400
-from linebot.v3.messaging import TextMessage, BroadcastRequest
 
 def run_crawl_job():
     """每 3 小時執行一次，爬取新文章存入資料庫。"""
@@ -38,6 +38,12 @@ def run_crawl_job():
 def run_broadcast_job(line_bot_api):
     """每天早上 9:00 執行，推播今日詐騙摘要給所有用戶。"""
     print("[broadcast] 開始每日推播...")
+
+    # 防重複推播：APScheduler 與 cron-job 可能都在 9:00 觸發，
+    # 若 12 小時內已推播過就跳過，確保一天只推一次
+    if has_broadcast_within(hours=12):
+        print("[broadcast] 12 小時內已推播，跳過")
+        return
 
     user_ids = get_all_user_ids()
     if not user_ids:

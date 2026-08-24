@@ -31,6 +31,10 @@ SYSTEM_PROMPT = """你是「防詐小幫手」，一個親切的詐騙防範助�
 ARTICLE_SYSTEM_PROMPT = """你是新聞整理助理，專門整理詐騙防範相關資訊。
 請根據指示精簡回覆，不要加入多餘內容。"""
 
+# 圖片分析用：親切但不強制固定格式（格式由 user 訊息指定，避免與 SYSTEM_PROMPT 衝突）
+IMAGE_SYSTEM_PROMPT = """你是「防詐小幫手」，一個親切、專業的詐騙防範助理。
+請用繁體中文、依照使用者指定的格式回覆，語氣溫暖像朋友提醒。"""
+
 def summarize_article(title: str, content: str) -> dict:
     """
     用 AI 生成標題與摘要，回傳 {"title": ..., "summary": ...}。
@@ -87,7 +91,7 @@ def analyze_image_for_scam(image_b64: str, media_type: str = "image/jpeg") -> tu
         message = client.messages.create(
             model=MODEL,
             max_tokens=500,
-            system=SYSTEM_PROMPT,
+            system=IMAGE_SYSTEM_PROMPT,
             messages=[{
                 "role": "user",
                 "content": [

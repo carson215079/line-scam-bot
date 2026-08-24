@@ -1,5 +1,3 @@
-import re
-import json
 import requests
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
@@ -39,66 +37,11 @@ TAIWAN_FEEDS = [
     ("ETtoday", "https://feeds.feedburner.com/ettoday/news"),
 ]
 
-def resolve_url(url: str) -> str:
-    """
-    將 Google News RSS 連結解碼為真實新聞網址。
-    Google 不使用 HTTP 轉址（回 200 的 JS 頁面），必須透過其內部
-    batchexecute API 解碼。解碼失敗時保留原始 RSS 連結
-    （瀏覽器開啟仍可 JS 跳轉，勿轉成 /articles/ 格式——該格式回 400）。
-    """
-    if "news.google.com" not in url:
-        return url
-    m = re.search(r"/articles/([^?/]+)", url)
-    if not m:
-        return url
-    art_id = m.group(1)
-
-    try:
-        # 用 Session 讓步驟 1 取得的 cookie 帶到步驟 2（部分環境解碼需要 session cookie）
-        sess = requests.Session()
-        sess.headers.update(UA_HEADERS)
-
-        # 步驟 1：抓文章頁，取得解碼所需的簽章與時間戳
-        page = sess.get(
-            f"https://news.google.com/rss/articles/{art_id}?oc=5",
-            timeout=15
-        )
-        sg = re.search(r'data-n-a-sg="([^"]+)"', page.text)
-        ts = re.search(r'data-n-a-ts="([^"]+)"', page.text)
-        if not (sg and ts):
-            print(f"[resolve_url] 取不到簽章（HTTP {page.status_code}，頁面 {len(page.text)} 字），保留原連結")
-            return url
-
-        # 步驟 2：呼叫解碼 API 取得真實網址
-        payload = (
-            '["garturlreq",[["X","X",["X","X"],null,null,1,1,"TW:zh-Hant",'
-            'null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],'
-            f'"{art_id}",{ts.group(1)},"{sg.group(1)}"]'
-        )
-        resp = sess.post(
-            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
-            data={"f.req": json.dumps([[["Fbv4je", payload]]])},
-            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
-            timeout=15
-        )
-        # 回應中的引號是跳脫格式（\"garturlres\"），比對時不含引號
-        m2 = re.search(r'garturlres.*?(https?://[^\\"]+)', resp.text)
-        if m2:
-            return m2.group(1)
-        print(f"[resolve_url] 解碼 API 無有效回應（HTTP {resp.status_code}），保留原連結")
-        return url
-    except Exception as e:
-        print(f"[resolve_url] 解碼例外：{type(e).__name__} {e}，保留原連結")
-        return url
-
 def fetch_article_text(url: str, max_chars: int = 2000) -> str:
     """
     抓取文章頁面並萃取內文（供 AI 摘要用）。
-    抓不到（防爬、逾時、仍是 Google News 轉址頁）就回傳空字串，由呼叫端 fallback 標題。
+    抓不到（防爬、逾時、非 HTML）就回傳空字串，由呼叫端 fallback 標題。
     """
-    # Google News 頁面是 JS 動態載入，抓不到內文
-    if "news.google.com" in url:
-        return ""
     try:
         from bs4 import BeautifulSoup
         resp = requests.get(url, timeout=8, headers=UA_HEADERS, stream=True)

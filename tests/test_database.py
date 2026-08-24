@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db.database import (
     init_db, save_article, search_articles, get_all_user_ids,
-    save_user, get_latest_articles, title_similarity, _get_conn
+    save_user, title_similarity, get_conversation_history, save_message, _get_conn
 )
 
 def test_title_similarity_same_event_high():
@@ -54,8 +54,16 @@ def test_save_and_get_user():
     ids = get_all_user_ids()
     assert "PYTEST_U123456789" in ids
 
-def test_get_latest_articles():
-    save_article("文章1PYTEST", "內容1", "摘要1", TEST_URL_PREFIX + "3", "165", "2026-06-25")
-    save_article("文章2PYTEST", "內容2", "摘要2", TEST_URL_PREFIX + "4", "165", "2026-06-26")
-    results = get_latest_articles(limit=2)
-    assert len(results) == 2
+def test_conversation_history_starts_with_user():
+    """對話歷史須以 user 開頭（去掉開頭多餘的 assistant），符合 Anthropic API 要求"""
+    uid = "PYTEST_CONV_USER"
+    # 故意先存一則 assistant（模擬孤兒訊息），再存正常一輪
+    save_message(uid, "assistant", "孤兒訊息")
+    save_message(uid, "user", "問題")
+    save_message(uid, "assistant", "回答")
+    hist = get_conversation_history(uid, limit=6)
+    assert hist and hist[0]["role"] == "user"
+    # 清理
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM conversations WHERE line_user_id = %s", (uid,))
+        conn.commit()
