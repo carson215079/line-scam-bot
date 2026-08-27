@@ -3,7 +3,9 @@ name: Daily Tasks
 on:
   schedule:
     - cron: '0 */3 * * *'   # 每 3 小時爬取
-    - cron: '0 1 * * *'     # 09:00 台灣時間推播 (UTC+8)
+    - cron: '0 0 * * *'     # 08:00 台灣時間推播（第一波）
+    - cron: '30 0 * * *'    # 08:30 台灣時間推播（第二波）
+    - cron: '0 1 * * *'     # 09:00 台灣時間推播（第三波）
     - cron: '0 20 * * *'    # 04:00 台灣時間清理 (UTC+8)
   workflow_dispatch:
     inputs:
@@ -38,11 +40,12 @@ jobs:
       - name: Determine task
         id: task
         run: |
+          SCHEDULE="${{ github.event.schedule }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "task=${{ inputs.task }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 1 * * *" ]; then
+          elif [ "$SCHEDULE" = "0 0 * * *" ] || [ "$SCHEDULE" = "30 0 * * *" ] || [ "$SCHEDULE" = "0 1 * * *" ]; then
             echo "task=broadcast" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 20 * * *" ]; then
+          elif [ "$SCHEDULE" = "0 20 * * *" ]; then
             echo "task=cleanup" >> "$GITHUB_OUTPUT"
           else
             echo "task=crawl" >> "$GITHUB_OUTPUT"
