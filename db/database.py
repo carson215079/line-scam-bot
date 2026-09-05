@@ -113,19 +113,38 @@ SIMILAR_THRESHOLD = 0.45  # 高於此值視為同一則新聞
 def get_articles_for_broadcast(limit=5):
     """
     取尚未推播的最新文章，並過濾掉「內容雷同」的重複新聞：
-    - 跨天：不與最近 7 天已推播的標題雷同
+    - 跨天：不與最近 14 天已推播的標題雷同
     - 同批：本次選出的 5 則彼此不雷同
+    - 循環：全部推播完畢時，重設舊文章的推播狀態，重新開始
     """
     cols = ["id", "title", "summary", "url", "source", "published_at"]
     with _get_conn() as conn:
-        # 撈較多候選（未推播，最新在前），再逐一挑選非重複者
         candidates = conn.execute(
             "SELECT id, title, summary, url, source, published_at FROM articles "
-            "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT 30"
+            "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT 50"
         ).fetchall()
-        # 最近 7 天已推播過的標題（避免跨天重複同事件）
+
+        if not candidates:
+            conn.execute(
+                "UPDATE articles SET broadcasted_at = NULL "
+                "WHERE broadcasted_at < NOW() - INTERVAL '14 days'"
+            )
+            conn.commit()
+            candidates = conn.execute(
+                "SELECT id, title, summary, url, source, published_at FROM articles "
+                "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT 50"
+            ).fetchall()
+
+        if not candidates:
+            conn.execute("UPDATE articles SET broadcasted_at = NULL")
+            conn.commit()
+            candidates = conn.execute(
+                "SELECT id, title, summary, url, source, published_at FROM articles "
+                "WHERE broadcasted_at IS NULL ORDER BY created_at DESC LIMIT 50"
+            ).fetchall()
+
         recent = conn.execute(
-            "SELECT title FROM articles WHERE broadcasted_at > NOW() - INTERVAL '7 days'"
+            "SELECT title FROM articles WHERE broadcasted_at > NOW() - INTERVAL '14 days'"
         ).fetchall()
 
     seen_titles = [r[0] for r in recent]
@@ -133,7 +152,7 @@ def get_articles_for_broadcast(limit=5):
     for row in candidates:
         title = row[1]
         if any(title_similarity(title, s) >= SIMILAR_THRESHOLD for s in seen_titles):
-            continue  # 與近期或本批已選的雷同，跳過
+            continue
         picked.append(dict(zip(cols, row)))
         seen_titles.append(title)
         if len(picked) >= limit:
