@@ -1,4 +1,5 @@
 name: Daily Tasks
+# Re-enabled after 60-day inactivity auto-disable
 
 on:
   schedule:
