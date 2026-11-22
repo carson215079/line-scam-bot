@@ -1,0 +1,24 @@
+name: Keep Alive
+
+# GitHub 會在 repo 60 天無活動後自動停用排程 workflow。
+# 此 workflow 每 50 天自動 push 一個空 commit，防止排程被停用。
+
+on:
+  schedule:
+    - cron: '0 0 1 */2 *'   # 每兩個月的 1 號
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Keep workflow alive
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keep GitHub Actions alive"
+          git push
