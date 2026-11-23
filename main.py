@@ -22,9 +22,9 @@ init_db()
 def _authorized() -> bool:
     """驗證管理端點的存取金鑰（compare_digest 防時序攻擊）"""
     import hmac
-    key = request.args.get("key", "")
+    auth = request.headers.get("Authorization", "")
+    key = auth[7:] if auth.startswith("Bearer ") else ""
     admin_key = os.getenv("ADMIN_KEY", "")
-    # ADMIN_KEY 未設定時一律拒絕，避免空字串比對通過
     return bool(admin_key) and hmac.compare_digest(key, admin_key)
 
 def _run_background(func, *args):
@@ -43,10 +43,10 @@ def remigrate():
     _run_background(run)
     return jsonify({"status": "started"}), 200
 
-# --- 外部觸發端點 ---
-# Render 免費方案閒置會休眠，行程內的 APScheduler 也隨之停擺。
-# 由 cron-job.org 定時呼叫以下端點，可同時「喚醒服務」並「確實執行任務」。
-# 與 APScheduler 並存不會重複執行：爬蟲靠 URL 唯一擋重複、推播靠 broadcasted_at 去重。
+# --- 管理端點（需 Authorization: Bearer <ADMIN_KEY>）---
+# 主要排程由 GitHub Actions 負責（.github/workflows/daily.yml）。
+# 以下端點為手動觸發備用，呼叫方式：
+#   curl -H "Authorization: Bearer $ADMIN_KEY" https://.../tasks/broadcast
 
 @app.route("/tasks/crawl")
 def task_crawl():

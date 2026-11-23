@@ -14,21 +14,9 @@ SCAM_KEYWORDS = [
     "網購詐", "投資詐", "感情詐", "電信詐", "金融詐", "被騙", "遭騙", "騙走",
 ]
 
-# 排除詞：公務虛報請領類（非民眾受害的詐騙）
-# 注意：僅在標題「沒有」任何 SCAM_KEYWORDS 時才需要它們把關；
-#      有強訊號（如「反詐」「防詐」）的宣導新聞不受此清單影響。
-EXCLUDE_KEYWORDS = ["詐領", "助理費", "浮報", "溢領"]
-
 def is_scam_article(title: str) -> bool:
-    """
-    判斷標題是否為民眾受害／防詐宣導的新聞。
-    規則：有 SCAM_KEYWORDS 即收錄；沒有時，若含 EXCLUDE_KEYWORDS 也一律不收。
-    （「詐領」等詞不在 SCAM_KEYWORDS 中，故貪瀆虛報案自然落選；
-      排除清單僅作雙重保險，不會誤殺含「反詐/防詐」的宣導新聞。）
-    """
-    if any(k in title for k in SCAM_KEYWORDS):
-        return True
-    return False
+    """判斷標題是否為民眾受害／防詐宣導的新聞（含 SCAM_KEYWORDS 即收錄）。"""
+    return any(k in title for k in SCAM_KEYWORDS)
 
 # 台灣媒體 RSS 來源（提供真實文章網址，免解碼）
 TAIWAN_FEEDS = [

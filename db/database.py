@@ -258,7 +258,8 @@ def cleanup_old_conversations(days: int = 30) -> int:
     """刪除超過 N 天的舊對話紀錄，回傳刪除筆數"""
     with _get_conn() as conn:
         cur = conn.execute(
-            "DELETE FROM conversations WHERE created_at < NOW() - INTERVAL '%s days'" % int(days)
+            "DELETE FROM conversations WHERE created_at < NOW() - make_interval(days => %s)",
+            (int(days),)
         )
         deleted = cur.rowcount
         conn.commit()
